@@ -4,7 +4,6 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Manifest</title>
-    <!-- PWA Requirements -->
     <link rel="manifest" href="/manifest.json" />
     <meta name="theme-color" content="#1e1e1e" />
     <link rel="apple-touch-icon" href="/icon.svg" />
@@ -12,8 +11,6 @@
   <body style="background: #1e1e1e; color: #eee; margin: 0; padding: 0;">
     <div id="app"></div>
     <script type="module" src="/src/main.js"></script>
-    
-    <!-- Register the PWA Service Worker -->
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {

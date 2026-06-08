@@ -3,12 +3,15 @@
 
     let user = null;
     let tasks = [];
+    let allUsers = []; // Stores all registered users for sharing
+    
     let newTaskTitle = '';
     let newTaskDate = '';
     
     let currentView = 'list';
     let editingTask = null; 
     let selectedDep = null;
+    let selectedAssignee = null;
     
     let currentDate = new Date();
     $: currentMonth = currentDate.getMonth();
@@ -30,12 +33,19 @@
 
     onMount(async () => {
         await checkUser();
-        if (user) await loadTasks();
+        if (user) {
+            await Promise.all([loadTasks(), loadUsers()]);
+        }
     });
 
     async function checkUser() {
         const res = await fetch('/api/user');
         if (res.ok) user = await res.json();
+    }
+    
+    async function loadUsers() {
+        const res = await fetch('/api/users');
+        if (res.ok) allUsers = await res.json();
     }
 
     async function loadTasks() {
@@ -54,6 +64,11 @@
     function getTaskName(id) {
         const t = tasks.find(t => t.id === id);
         return t ? t.title : 'Unknown Task';
+    }
+    
+    function getUserName(id) {
+        const u = allUsers.find(u => u.id === id);
+        return u ? u.username : 'Unknown User';
     }
 
     async function addTask() {
@@ -80,7 +95,7 @@
         const res = await fetch(`/api/tasks/${task.id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...task, dueDate: task.due_date, predecessors: task.predecessors })
+            body: JSON.stringify({ ...task, dueDate: task.due_date, predecessors: task.predecessors, assignees: task.assignees })
         });
         
         if (res.ok) {
@@ -95,20 +110,33 @@
         editingTask = { 
             ...task, 
             due_date: task.due_date ? task.due_date.split('T')[0] : '',
-            predecessors: task.predecessors ? [...task.predecessors] : []
+            predecessors: task.predecessors ? [...task.predecessors] : [],
+            assignees: task.assignees ? [...task.assignees] : []
         };
         selectedDep = null;
+        selectedAssignee = null;
     }
 
+    // --- Dependency Logic ---
     function addDep() {
         if (selectedDep && !editingTask.predecessors.includes(selectedDep)) {
             editingTask.predecessors = [...editingTask.predecessors, selectedDep];
             selectedDep = null;
         }
     }
-
     function removeDep(id) {
         editingTask.predecessors = editingTask.predecessors.filter(pid => pid !== id);
+    }
+    
+    // --- Assignee Logic ---
+    function addAssignee() {
+        if (selectedAssignee && !editingTask.assignees.includes(selectedAssignee)) {
+            editingTask.assignees = [...editingTask.assignees, selectedAssignee];
+            selectedAssignee = null;
+        }
+    }
+    function removeAssignee(id) {
+        editingTask.assignees = editingTask.assignees.filter(uid => uid !== id);
     }
 
     async function saveEdit() {
@@ -120,7 +148,8 @@
                 description: editingTask.description,
                 dueDate: editingTask.due_date,
                 completed: editingTask.completed,
-                predecessors: editingTask.predecessors
+                predecessors: editingTask.predecessors,
+                assignees: editingTask.assignees
             })
         });
         if (res.ok) {
@@ -170,6 +199,9 @@
                                 {#if isBlocked(task)}
                                     <span class="badge warning" title="Waiting on predecessor">🔒 Blocked</span>
                                 {/if}
+                                {#if task.assignees && task.assignees.length > 0} 
+                                    <span class="badge shared" title="Shared Task">👥 {task.assignees.length}</span> 
+                                {/if}
                                 {#if task.due_date} <span class="badge">{task.due_date.split('T')[0]}</span> {/if}
                                 {#if task.description} <span class="desc-indicator">☰</span> {/if}
                             </div>
@@ -217,7 +249,33 @@
                     <label>Due Date:</label>
                     <input type="date" bind:value={editingTask.due_date} />
                 </div>
+                
+                <!-- Assignment Section -->
+                <div class="modal-section">
+                    <label>Assigned To (Shared Users):</label>
+                    <div class="dep-list">
+                        {#if editingTask.assignees.length === 0}
+                            <span style="color: #666; font-size: 0.85rem; font-style: italic;">Private (Only you)</span>
+                        {/if}
+                        {#each editingTask.assignees as uid}
+                            <span class="dep-badge shared-badge">
+                                {getUserName(uid)} 
+                                <button class="remove-dep" on:click={() => removeAssignee(uid)}>x</button>
+                            </span>
+                        {/each}
+                    </div>
+                    <div class="add-dep">
+                        <select bind:value={selectedAssignee}>
+                            <option value={null}>-- Select user to share with --</option>
+                            {#each allUsers.filter(u => u.id !== editingTask.user_id && !editingTask.assignees.includes(u.id)) as u}
+                                <option value={u.id}>{u.username}</option>
+                            {/each}
+                        </select>
+                        <button class="btn secondary" on:click={addAssignee}>Add</button>
+                    </div>
+                </div>
 
+                <!-- Dependencies Section -->
                 <div class="modal-section">
                     <label>Depends on (Predecessors):</label>
                     <div class="dep-list">
@@ -285,6 +343,7 @@
     .task-title { color: #eee; font-size: 1.05rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
     .badge { background: #555; color: #ddd; font-size: 0.75rem; padding: 3px 8px; border-radius: 12px; white-space: nowrap; }
     .badge.warning { background: #8a6a00; font-weight: bold; }
+    .badge.shared { background: #2f855a; }
     .desc-indicator { color: #888; font-size: 0.9rem; }
 
     .calendar { background: #1a1a1a; padding: 15px; border-radius: 8px; border: 1px solid #333; }
@@ -299,8 +358,8 @@
     .mini-task { background: #646cff; color: #fff; font-size: 0.65rem; padding: 2px 4px; border-radius: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
     .mini-task.blocked { background: #8a6a00; opacity: 0.8; }
 
-    .modal-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.7); display: flex; justify-content: center; align-items: center; padding: 20px; box-sizing: border-box; z-index: 100; backdrop-filter: blur(3px); }
-    .modal { background: #222; padding: 25px; border-radius: 12px; width: 100%; max-width: 450px; display: flex; flex-direction: column; gap: 15px; border: 1px solid #444; box-shadow: 0 10px 30px rgba(0,0,0,0.8); }
+    .modal-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.7); display: flex; justify-content: center; align-items: center; padding: 20px; box-sizing: border-box; z-index: 100; backdrop-filter: blur(3px); overflow-y: auto;}
+    .modal { background: #222; padding: 25px; border-radius: 12px; width: 100%; max-width: 450px; display: flex; flex-direction: column; gap: 15px; border: 1px solid #444; box-shadow: 0 10px 30px rgba(0,0,0,0.8); margin: auto;}
     .modal h2 { margin: 0; color: #fff; font-size: 1.3rem; }
     .full-width { width: 100%; box-sizing: border-box; }
     .title-input { font-size: 1.1rem; font-weight: bold; }
@@ -310,6 +369,7 @@
     .modal-section label { display: block; color: #aaa; margin-bottom: 10px; font-size: 0.9rem; font-weight: bold; }
     .dep-list { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 15px; }
     .dep-badge { background: #333; border: 1px solid #555; padding: 5px 10px; border-radius: 6px; font-size: 0.85rem; display: flex; align-items: center; gap: 8px; color: #ddd; }
+    .shared-badge { background: #1b4332; border-color: #2d6a4f; }
     .remove-dep { background: transparent; border: none; color: #ff5555; cursor: pointer; font-weight: bold; padding: 0 4px; font-size: 1rem; }
     .remove-dep:hover { color: #ff2222; }
     .add-dep { display: flex; gap: 8px; }
