@@ -2,10 +2,11 @@ require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
 const { Pool } = require('pg');
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs'); // Swapped to bcryptjs for Oracle ARM64 compatibility
 const passport = require('passport');
 const LocalStrategy = require('passport-local').Strategy;
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
+const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -74,23 +75,6 @@ passport.deserializeUser(async (id, done) => {
     }
 });
 
-// Local Strategy (Username/Password)
-passport.use(new LocalStrategy(async (username, password, done) => {
-    try {
-        const result = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
-        const user = result.rows[0];
-        if (!user) return done(null, false, { message: 'Incorrect username.' });
-        if (!user.password) return done(null, false, { message: 'User registered via Google.' });
-        
-        const match = await bcrypt.compare(password, user.password);
-        if (!match) return done(null, false, { message: 'Incorrect password.' });
-        
-        return done(null, user);
-    } catch (err) {
-        return done(err);
-    }
-}));
-
 // Google Strategy
 passport.use(new GoogleStrategy({
     clientID: process.env.GOOGLE_CLIENT_ID,
@@ -99,12 +83,10 @@ passport.use(new GoogleStrategy({
   },
   async (accessToken, refreshToken, profile, done) => {
       try {
-          // Check if user exists
           let result = await pool.query('SELECT * FROM users WHERE google_id = $1', [profile.id]);
           if (result.rows.length > 0) {
               return done(null, result.rows[0]);
           } else {
-              // Create new user
               result = await pool.query(
                   'INSERT INTO users (google_id, username) VALUES ($1, $2) RETURNING *',
                   [profile.id, profile.displayName]
@@ -118,39 +100,15 @@ passport.use(new GoogleStrategy({
 ));
 
 // --- AUTHENTICATION ROUTES ---
-
-// Register Local User
-app.post('/auth/register', async (req, res) => {
-    const { username, password } = req.body;
-    try {
-        const hashedPassword = await bcrypt.hash(password, 10);
-        const result = await pool.query(
-            'INSERT INTO users (username, password) VALUES ($1, $2) RETURNING id, username',
-            [username, hashedPassword]
-        );
-        res.status(201).json({ message: 'User registered', user: result.rows[0] });
-    } catch (err) {
-        res.status(500).json({ error: 'Registration failed. Username might be taken.' });
-    }
-});
-
-// Login Local User
-app.post('/auth/login', passport.authenticate('local'), (req, res) => {
-    res.json({ message: 'Logged in successfully', user: { id: req.user.id, username: req.user.username } });
-});
-
-// Google Login Routes
 app.get('/auth/google', passport.authenticate('google', { scope: ['profile'] }));
 
 app.get('/auth/google/callback', 
-    passport.authenticate('google', { failureRedirect: '/login' }),
+    passport.authenticate('google', { failureRedirect: '/' }),
     (req, res) => {
-        // Successful authentication, redirect to PWA home.
-        res.redirect(process.env.PWA_FRONTEND_URL || '/');
+        res.redirect('/'); // Monolith redirects back to root UI
     }
 );
 
-// Logout
 app.post('/auth/logout', (req, res, next) => {
     req.logout((err) => {
         if (err) return next(err);
@@ -158,11 +116,20 @@ app.post('/auth/logout', (req, res, next) => {
     });
 });
 
-// --- API ROUTES (Protected) ---
+// --- API ROUTES ---
 const ensureAuthenticated = (req, res, next) => {
     if (req.isAuthenticated()) return next();
     res.status(401).json({ error: 'Unauthorized' });
 };
+
+// Get current logged in user
+app.get('/api/user', (req, res) => {
+    if (req.isAuthenticated()) {
+        res.json({ id: req.user.id, username: req.user.username });
+    } else {
+        res.status(401).json({ error: 'Not logged in' });
+    }
+});
 
 // Get Tasks
 app.get('/api/tasks', ensureAuthenticated, async (req, res) => {
@@ -186,6 +153,15 @@ app.post('/api/tasks', ensureAuthenticated, async (req, res) => {
     } catch (err) {
         res.status(500).json({ error: 'Failed to create task' });
     }
+});
+
+// --- FRONTEND MONOLITH HOSTING ---
+// Vite builds the Svelte app into the 'dist' folder.
+app.use(express.static(path.join(__dirname, 'dist')));
+
+// Catch-all route to serve the Svelte SPA 
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
 // Start Server
