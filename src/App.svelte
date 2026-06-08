@@ -43,7 +43,6 @@
         if (res.ok) tasks = await res.json();
     }
 
-    // Helper to check if a task is blocked by incomplete predecessors
     function isBlocked(task) {
         if (!task.predecessors || task.predecessors.length === 0) return false;
         return task.predecessors.some(pid => {
@@ -65,14 +64,14 @@
             body: JSON.stringify({ title: newTaskTitle, dueDate: newTaskDate || null })
         });
         if (res.ok) {
-            await loadTasks(); // Reload to capture accurate relations
+            await loadTasks(); 
             newTaskTitle = '';
             newTaskDate = '';
         }
     }
     
     async function toggleComplete(task) {
-        if (isBlocked(task)) return; // Prevent completion if blocked
+        if (isBlocked(task)) return; 
         
         const oldStatus = task.completed;
         task.completed = !task.completed;
@@ -85,7 +84,7 @@
         });
         
         if (res.ok) {
-            await loadTasks(); // Refresh to unblock successors instantly
+            await loadTasks(); 
         } else {
             task.completed = oldStatus;
             tasks = [...tasks];
@@ -207,7 +206,6 @@
         {/if}
     </div>
 
-    <!-- Edit Task Modal -->
     {#if editingTask}
         <div class="modal-overlay">
             <div class="modal">
@@ -236,7 +234,6 @@
                     <div class="add-dep">
                         <select bind:value={selectedDep}>
                             <option value={null}>-- Select a prerequisite task --</option>
-                            <!-- Show tasks that aren't the current task, aren't already predecessors, and aren't completed -->
                             {#each tasks.filter(t => t.id !== editingTask.id && !editingTask.predecessors.includes(t.id)) as t}
                                 <option value={t.id}>{t.title} {t.completed ? '(Done)' : ''}</option>
                             {/each}
