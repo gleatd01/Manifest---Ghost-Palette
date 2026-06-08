@@ -1,12 +1,18 @@
-require('dotenv').config();
-const express = require('express');
-const session = require('express-session');
-const { Pool } = require('pg');
-const bcrypt = require('bcryptjs'); // Swapped to bcryptjs for Oracle ARM64 compatibility
-const passport = require('passport');
-const LocalStrategy = require('passport-local').Strategy;
-const GoogleStrategy = require('passport-google-oauth20').Strategy;
-const path = require('path');
+import dotenv from 'dotenv';
+dotenv.config();
+import express from 'express';
+import session from 'express-session';
+import pg from 'pg';
+const { Pool } = pg;
+import bcrypt from 'bcryptjs'; 
+import passport from 'passport';
+import { Strategy as LocalStrategy } from 'passport-local';
+import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
