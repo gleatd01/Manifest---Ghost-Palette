@@ -17,7 +17,6 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(session({
@@ -28,7 +27,6 @@ app.use(session({
 app.use(passport.initialize());
 app.use(passport.session());
 
-// PostgreSQL Connection Pool
 const pool = new Pool({
     user: process.env.POSTGRES_USER,
     host: process.env.POSTGRES_HOST,
@@ -37,7 +35,6 @@ const pool = new Pool({
     port: process.env.POSTGRES_PORT || 5432,
 });
 
-// Initialize Database Tables
 async function initDB() {
     const createUsersTable = `
         CREATE TABLE IF NOT EXISTS users (
@@ -60,14 +57,18 @@ async function initDB() {
     try {
         await pool.query(createUsersTable);
         await pool.query(createTasksTable);
-        console.log("Database tables verified/created.");
+        
+        // Add new columns for V2 (Safe for existing deployments)
+        await pool.query('ALTER TABLE tasks ADD COLUMN IF NOT EXISTS due_date DATE;');
+        await pool.query('ALTER TABLE tasks ADD COLUMN IF NOT EXISTS description TEXT;');
+        
+        console.log("Database tables verified/updated.");
     } catch (err) {
         console.error("Error initializing DB:", err);
     }
 }
 initDB();
 
-// Passport Serialization
 passport.serializeUser((user, done) => {
     done(null, user.id);
 });
@@ -81,7 +82,6 @@ passport.deserializeUser(async (id, done) => {
     }
 });
 
-// Google Strategy
 passport.use(new GoogleStrategy({
     clientID: process.env.GOOGLE_CLIENT_ID,
     clientSecret: process.env.GOOGLE_CLIENT_SECRET,
@@ -105,14 +105,10 @@ passport.use(new GoogleStrategy({
   }
 ));
 
-// --- AUTHENTICATION ROUTES ---
 app.get('/auth/google', passport.authenticate('google', { scope: ['profile'] }));
-
 app.get('/auth/google/callback', 
     passport.authenticate('google', { failureRedirect: '/' }),
-    (req, res) => {
-        res.redirect('/'); // Monolith redirects back to root UI
-    }
+    (req, res) => res.redirect('/')
 );
 
 app.post('/auth/logout', (req, res, next) => {
@@ -122,19 +118,14 @@ app.post('/auth/logout', (req, res, next) => {
     });
 });
 
-// --- API ROUTES ---
 const ensureAuthenticated = (req, res, next) => {
     if (req.isAuthenticated()) return next();
     res.status(401).json({ error: 'Unauthorized' });
 };
 
-// Get current logged in user
 app.get('/api/user', (req, res) => {
-    if (req.isAuthenticated()) {
-        res.json({ id: req.user.id, username: req.user.username });
-    } else {
-        res.status(401).json({ error: 'Not logged in' });
-    }
+    if (req.isAuthenticated()) res.json({ id: req.user.id, username: req.user.username });
+    else res.status(401).json({ error: 'Not logged in' });
 });
 
 // Get Tasks
@@ -149,11 +140,11 @@ app.get('/api/tasks', ensureAuthenticated, async (req, res) => {
 
 // Create Task
 app.post('/api/tasks', ensureAuthenticated, async (req, res) => {
-    const { title } = req.body;
+    const { title, dueDate } = req.body;
     try {
         const result = await pool.query(
-            'INSERT INTO tasks (user_id, title) VALUES ($1, $2) RETURNING *',
-            [req.user.id, title]
+            'INSERT INTO tasks (user_id, title, due_date) VALUES ($1, $2, $3) RETURNING *',
+            [req.user.id, title, dueDate || null]
         );
         res.status(201).json(result.rows[0]);
     } catch (err) {
@@ -161,16 +152,28 @@ app.post('/api/tasks', ensureAuthenticated, async (req, res) => {
     }
 });
 
-// --- FRONTEND MONOLITH HOSTING ---
-// Vite builds the Svelte app into the 'dist' folder.
-app.use(express.static(path.join(__dirname, 'dist')));
+// Update Task (Completion, Description, Due Date)
+app.put('/api/tasks/:id', ensureAuthenticated, async (req, res) => {
+    const { title, description, completed, dueDate } = req.body;
+    try {
+        const result = await pool.query(
+            `UPDATE tasks SET 
+                title = $1, 
+                description = $2, 
+                completed = $3, 
+                due_date = $4 
+             WHERE id = $5 AND user_id = $6 RETURNING *`,
+            [title, description || null, completed, dueDate || null, req.params.id, req.user.id]
+        );
+        res.json(result.rows[0]);
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to update task' });
+    }
+});
 
-// Catch-all route to serve the Svelte SPA 
+app.use(express.static(path.join(__dirname, 'dist')));
 app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
-// Start Server
-app.listen(PORT, () => {
-    console.log(`Manifest - Ghost Palette API running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`API running on port ${PORT}`));
