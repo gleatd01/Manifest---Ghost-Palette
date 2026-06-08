@@ -64,7 +64,6 @@ async function initDB() {
                 PRIMARY KEY (predecessor_id, successor_id)
             );
         `);
-        // V5 Additions: Shared tasks junction table
         await pool.query(`
             CREATE TABLE IF NOT EXISTS task_assignees (
                 task_id INTEGER REFERENCES tasks(id) ON DELETE CASCADE,
@@ -72,7 +71,7 @@ async function initDB() {
                 PRIMARY KEY (task_id, user_id)
             );
         `);
-        console.log("Database tables verified/updated for Shared Tasks.");
+        console.log("Database initialized successfully.");
     } catch (err) {
         console.error("Error initializing DB:", err);
     }
@@ -121,7 +120,6 @@ app.get('/api/user', (req, res) => {
     else res.status(401).json({ error: 'Not logged in' });
 });
 
-// NEW: Get all users so we can select who to assign tasks to
 app.get('/api/users', ensureAuthenticated, async (req, res) => {
     try {
         const result = await pool.query('SELECT id, username FROM users ORDER BY username ASC');
@@ -131,7 +129,6 @@ app.get('/api/users', ensureAuthenticated, async (req, res) => {
     }
 });
 
-// Get Tasks (Including ones assigned to me by others)
 app.get('/api/tasks', ensureAuthenticated, async (req, res) => {
     try {
         const result = await pool.query(`
@@ -174,7 +171,6 @@ app.put('/api/tasks/:id', ensureAuthenticated, async (req, res) => {
     try {
         await client.query('BEGIN');
         
-        // Ensure only the creator OR an assignee can edit the task
         const updateRes = await client.query(
             `UPDATE tasks SET title = $1, description = $2, completed = $3, due_date = $4 
              WHERE id = $5 AND (user_id = $6 OR EXISTS (SELECT 1 FROM task_assignees WHERE task_id = $5 AND user_id = $6))
