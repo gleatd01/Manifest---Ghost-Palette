@@ -46,6 +46,13 @@
         return null;
     });
 
+    $: agendaTasks = [...activeTasks].sort((a, b) => {
+        if (!a.due_date && !b.due_date) return 0;
+        if (!a.due_date) return 1;
+        if (!b.due_date) return -1;
+        return new Date(a.due_date) - new Date(b.due_date);
+    });
+
     onMount(async () => {
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.addEventListener('controllerchange', () => {
@@ -377,6 +384,7 @@
             <div class="view-tabs">
                 <button class:active={currentView === 'list'} on:click={() => currentView = 'list'}>List</button>
                 <button class:active={currentView === 'calendar'} on:click={() => currentView = 'calendar'}>Calendar</button>
+                <button class:active={currentView === 'agenda'} on:click={() => currentView = 'agenda'}>Agenda</button>
             </div>
 
             {#if currentView === 'list'}
@@ -434,6 +442,33 @@
                         {/each}
                     </div>
                 </div>
+            {:else if currentView === 'agenda'}
+                <div class="agenda-view">
+                    {#if agendaTasks.length === 0}
+                        <p class="empty">No tasks on the agenda.</p>
+                    {/if}
+                    {#each agendaTasks as task}
+                        <!-- svelte-ignore a11y-click-events-have-key-events -->
+                        <div class="agenda-item {isBlocked(task) ? 'blocked' : ''}" on:click={() => openEdit(task)}>
+                            <div class="agenda-date">
+                                {#if task.due_date}
+                                    <span class="day">{new Date(task.due_date).toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' })}</span>
+                                    <span class="date">{new Date(task.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })}</span>
+                                {:else}
+                                    <span class="no-date">Anytime</span>
+                                {/if}
+                            </div>
+                            <div class="agenda-content">
+                                <span class="task-title">{task.title}</span>
+                                <div class="agenda-badges">
+                                    {#if isBlocked(task)}<span class="badge warning">🔒 Blocked</span>{/if}
+                                    {#if task.reminder_time}<span class="badge">⏰ {task.reminder_time}</span>{/if}
+                                    {#if task.assignees && task.assignees.length > 0}<span class="badge shared">👥 {task.assignees.length}</span>{/if}
+                                </div>
+                            </div>
+                        </div>
+                    {/each}
+                </div>
             {/if}
         {/if}
     </div>
@@ -464,7 +499,6 @@
                         </button>
                     </div>
 
-                    <!-- Reminder Setup Box -->
                     {#if showReminder}
                         <div class="reminder-box">
                             <label>Remind me at:</label>
@@ -477,7 +511,6 @@
                         </div>
                     {/if}
 
-                    <!-- Description/Notes Section with embedded Workspace trigger -->
                     <div class="description-section">
                         <div class="desc-header">
                             <label>Notes:</label>
@@ -493,7 +526,6 @@
                         ></textarea>
                     </div>
                     
-                    <!-- Assignment Section (Collapsible) -->
                     <div class="modal-section">
                         <button class="section-toggle" on:click={() => showAssignees = !showAssignees}>
                             <span>Assigned To (Shared Users)</span>
@@ -526,7 +558,6 @@
                         {/if}
                     </div>
 
-                    <!-- Dependencies Section (Collapsible) -->
                     <div class="modal-section">
                         <button class="section-toggle" on:click={() => showDependencies = !showDependencies}>
                             <span>Depends on (Predecessors)</span>
@@ -649,18 +680,37 @@
     .badge.shared { background: #2f855a; }
     .desc-indicator { color: #646cff; font-size: 0.8rem; font-weight: bold; border: 1px solid #646cff; padding: 1px 5px; border-radius: 4px; }
 
+    /* Updated Calendar CSS for perfectly square, equally sized boxes */
     .calendar { background: #1a1a1a; padding: 15px; border-radius: 8px; border: 1px solid #333; }
     .cal-controls { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; color: #fff; }
     .cal-controls button { background: #333; color: #fff; }
     .cal-controls h3 { margin: 0; font-size: 1.1rem; }
     .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
     .cal-header-cell { text-align: center; color: #888; font-size: 0.8rem; font-weight: bold; padding-bottom: 5px; }
-    .cal-cell { background: #2a2a2a; border-radius: 4px; min-height: 70px; padding: 4px; display: flex; flex-direction: column; gap: 2px;}
+    .cal-cell { 
+        background: #2a2a2a; border-radius: 4px; padding: 4px; 
+        display: flex; flex-direction: column; gap: 2px;
+        aspect-ratio: 1 / 1; overflow-y: auto;
+    }
     .cal-cell.empty { background: transparent; }
-    .day-num { font-size: 0.8rem; color: #aaa; text-align: right; margin-bottom: 2px; }
-    .mini-task { background: #646cff; color: #fff; font-size: 0.65rem; padding: 2px 4px; border-radius: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+    .day-num { font-size: 0.8rem; color: #aaa; text-align: right; margin-bottom: 2px; flex-shrink: 0;}
+    .day-tasks { display: flex; flex-direction: column; gap: 2px; }
+    .mini-task { background: #646cff; color: #fff; font-size: 0.65rem; padding: 2px 4px; border-radius: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; flex-shrink: 0;}
     .mini-task.blocked { background: #8a6a00; opacity: 0.8; }
 
+    /* New Agenda View CSS */
+    .agenda-view { display: flex; flex-direction: column; gap: 10px; }
+    .agenda-item { display: flex; align-items: center; background: #2a2a2a; border-radius: 6px; padding: 12px; cursor: pointer; transition: background 0.2s; border-left: 4px solid #646cff; }
+    .agenda-item:hover { background: #333; }
+    .agenda-item.blocked { opacity: 0.6; border-left-color: #8a6a00; }
+    .agenda-date { min-width: 60px; display: flex; flex-direction: column; align-items: center; padding-right: 15px; border-right: 1px solid #444; margin-right: 15px; }
+    .agenda-date .day { font-size: 0.75rem; color: #888; text-transform: uppercase; }
+    .agenda-date .date { font-size: 0.9rem; font-weight: bold; color: #eee; text-align: center;}
+    .agenda-date .no-date { color: #555; font-weight: bold; font-size: 0.8rem;}
+    .agenda-content { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 0; }
+    .agenda-badges { display: flex; gap: 5px; flex-wrap: wrap; }
+
+    /* Modal Styles */
     .modal-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.7); display: flex; justify-content: center; align-items: center; padding: 20px; box-sizing: border-box; z-index: 100; backdrop-filter: blur(3px); overflow-y: auto;}
     .modal { background: #222; padding: 25px; border-radius: 12px; width: 100%; max-width: 450px; display: flex; flex-direction: column; gap: 15px; border: 1px solid #444; box-shadow: 0 10px 30px rgba(0,0,0,0.8); margin: auto; transition: max-width 0.2s, height 0.2s; }
     .modal h2 { margin: 0; color: #fff; font-size: 1.3rem; }
@@ -680,7 +730,6 @@
     
     .modal-section { background: #1a1a1a; padding: 15px; border-radius: 8px; border: 1px solid #333; }
     
-    /* Accordion Styles */
     .section-toggle { width: 100%; display: flex; justify-content: space-between; align-items: center; background: transparent; border: none; color: #aaa; font-size: 0.9rem; font-weight: bold; padding: 0; cursor: pointer; transition: color 0.2s; }
     .section-toggle:hover { color: #fff; }
     .section-content { margin-top: 15px; border-top: 1px solid #333; padding-top: 15px; display: flex; flex-direction: column; gap: 15px; }

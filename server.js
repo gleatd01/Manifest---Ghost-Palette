@@ -81,7 +81,6 @@ async function initDB() {
             );
         `);
         
-        // Non-destructive column additions for reminders
         try { await pool.query(`ALTER TABLE tasks ADD COLUMN reminder_time VARCHAR(5)`); } catch (e) {}
         try { await pool.query(`ALTER TABLE tasks ADD COLUMN reminder_frequency VARCHAR(20)`); } catch (e) {}
 
@@ -181,14 +180,12 @@ async function triggerPushNotification(userId, message, taskId) {
     }
 }
 
-// Background Job: Check for Reminders every minute
 cron.schedule('* * * * *', async () => {
     const now = new Date();
-    // Use local server time for matching
     const hours = String(now.getHours()).padStart(2, '0');
     const minutes = String(now.getMinutes()).padStart(2, '0');
     const currentTime = `${hours}:${minutes}`;
-    const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+    const dayOfWeek = now.getDay(); 
 
     try {
         const res = await pool.query(`
@@ -213,7 +210,6 @@ cron.schedule('* * * * *', async () => {
             if (shouldSend) {
                 const msg = `⏰ Reminder: "${task.title}"`;
                 
-                // Add to DB Notifications
                 await pool.query('INSERT INTO notifications (user_id, message, task_id) VALUES ($1, $2, $3)', [task.user_id, msg, task.id]);
                 await triggerPushNotification(task.user_id, msg, task.id);
                 
