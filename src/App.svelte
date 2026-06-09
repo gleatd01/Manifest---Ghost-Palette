@@ -700,7 +700,7 @@
     .cal-cell { 
         background: #2a2a2a; border-radius: 4px; padding: 4px; 
         display: flex; flex-direction: column; gap: 2px;
-        aspect-ratio: 1 / 1; overflow-y: auto; transition: background 0.2s;
+        min-height: 85px; overflow-y: auto; transition: background 0.2s;
     }
     
     .cal-cell.empty { background: #1c1c1c; opacity: 0.6; border: none; }
@@ -724,7 +724,6 @@
         
         .cal-grid { gap: 2px; }
         .cal-cell { 
-            aspect-ratio: auto; 
             min-height: 65px; 
             padding: 2px; 
         }
