@@ -1,6 +1,8 @@
 import dotenv from 'dotenv';
 dotenv.config();
 import express from 'express';
+import http from 'http';
+import { Server } from 'socket.io';
 import session from 'express-session';
 import pg from 'pg';
 const { Pool } = pg;
@@ -16,6 +18,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+const server = http.createServer(app);
+const io = new Server(server);
+
 const PORT = process.env.PORT || 3000;
 
 let vapidPublicKey = process.env.VAPID_PUBLIC_KEY;
@@ -111,7 +116,7 @@ async function initDB() {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         `);
-        console.log("Database initialized successfully with Web Push support.");
+        console.log("Database initialized successfully.");
     } catch (err) {
         console.error("Error initializing DB:", err);
     }
@@ -219,6 +224,7 @@ app.post('/api/tasks', ensureAuthenticated, async (req, res) => {
             'INSERT INTO tasks (user_id, title, due_date) VALUES ($1, $2, $3) RETURNING *',
             [req.user.id, title, dueDate || null]
         );
+        io.emit('workspace-update'); // Tell all clients to refresh data
         res.status(201).json(result.rows[0]);
     } catch (err) {
         res.status(500).json({ error: 'Failed to create task' });
@@ -283,6 +289,8 @@ app.put('/api/tasks/:id', ensureAuthenticated, async (req, res) => {
         }
 
         await client.query('COMMIT');
+        
+        io.emit('workspace-update'); // Tell all clients to refresh data
         res.json({ success: true });
     } catch (err) {
         await client.query('ROLLBACK');
@@ -310,6 +318,7 @@ app.post('/api/notifications/:id/read', ensureAuthenticated, async (req, res) =>
         res.status(500).json({ error: 'Failed to mark read' });
     }
 });
+
 app.post('/api/notifications/read-all', ensureAuthenticated, async (req, res) => {
     try {
         await pool.query('UPDATE notifications SET is_read = true WHERE user_id = $1', [req.user.id]);
@@ -341,4 +350,11 @@ app.post('/api/push/subscribe', ensureAuthenticated, async (req, res) => {
 app.use(express.static(path.join(__dirname, 'dist')));
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'dist', 'index.html')));
 
-app.listen(PORT, () => console.log(`API running on port ${PORT}`));
+io.on('connection', (socket) => {
+    console.log('A user connected via WebSocket');
+    socket.on('disconnect', () => {
+        console.log('User disconnected');
+    });
+});
+
+server.listen(PORT, () => console.log(`API running on port ${PORT}`));

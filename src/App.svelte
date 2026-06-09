@@ -1,5 +1,6 @@
 <script>
     import { onMount, tick } from 'svelte';
+    import { io } from 'socket.io-client';
 
     let user = null;
     let tasks = [];
@@ -45,11 +46,25 @@
     });
 
     onMount(async () => {
+        // Handle Automatic PWA App Code Updates
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.addEventListener('controllerchange', () => {
+                console.log("New app version detected. Refreshing...");
+                window.location.reload();
+            });
+        }
+
         await checkUser();
         if (user) {
             await Promise.all([loadTasks(), loadUsers(), loadNotifications()]);
-            setInterval(loadNotifications, 30000);
             
+            // Connect WebSocket for Real-Time Data Sync
+            const socket = io();
+            socket.on('workspace-update', async () => {
+                console.log("Real-time update received!");
+                await Promise.all([loadTasks(), loadNotifications()]);
+            });
+
             if ('Notification' in window) {
                 pushPermissionStatus = Notification.permission;
                 if (Notification.permission === 'granted') {
@@ -150,9 +165,9 @@
             body: JSON.stringify({ title: newTaskTitle, dueDate: newTaskDate || null })
         });
         if (res.ok) {
-            await loadTasks(); 
             newTaskTitle = '';
             newTaskDate = '';
+            // No need to loadTasks() manually here, the WebSocket will trigger it for us!
         }
     }
     
@@ -169,9 +184,7 @@
             body: JSON.stringify({ ...task, dueDate: task.due_date, predecessors: task.predecessors, assignees: task.assignees })
         });
         
-        if (res.ok) {
-            await loadTasks(); 
-        } else {
+        if (!res.ok) {
             task.completed = oldStatus;
             tasks = [...tasks];
         }
@@ -232,7 +245,6 @@
             })
         });
         if (res.ok) {
-            await loadTasks();
             saveStatus = "All changes saved";
         } else {
             saveStatus = "Error saving changes";

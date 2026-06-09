@@ -16,7 +16,9 @@
     "passport-google-oauth20": "^2.0.0",
     "passport-local": "^1.0.0",
     "pg": "^8.11.3",
-    "web-push": "^3.6.6"
+    "web-push": "^3.6.6",
+    "socket.io": "^4.7.2",
+    "socket.io-client": "^4.7.2"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^2.4.2",
