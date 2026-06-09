@@ -13,6 +13,7 @@ import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import webpush from 'web-push';
+import cron from 'node-cron';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -31,11 +32,6 @@ if (!vapidPublicKey || !vapidPrivateKey) {
     const keys = webpush.generateVAPIDKeys();
     vapidPublicKey = keys.publicKey;
     vapidPrivateKey = keys.privateKey;
-    console.log("=========================================");
-    console.log("SAVE THESE TO YOUR .ENV FOR PERSISTENCE:");
-    console.log(`VAPID_PUBLIC_KEY=${vapidPublicKey}`);
-    console.log(`VAPID_PRIVATE_KEY=${vapidPrivateKey}`);
-    console.log("=========================================");
 }
 
 webpush.setVapidDetails(
@@ -84,6 +80,11 @@ async function initDB() {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         `);
+        
+        // Non-destructive column additions for reminders
+        try { await pool.query(`ALTER TABLE tasks ADD COLUMN reminder_time VARCHAR(5)`); } catch (e) {}
+        try { await pool.query(`ALTER TABLE tasks ADD COLUMN reminder_frequency VARCHAR(20)`); } catch (e) {}
+
         await pool.query(`
             CREATE TABLE IF NOT EXISTS task_dependencies (
                 predecessor_id INTEGER REFERENCES tasks(id) ON DELETE CASCADE,
@@ -180,6 +181,54 @@ async function triggerPushNotification(userId, message, taskId) {
     }
 }
 
+// Background Job: Check for Reminders every minute
+cron.schedule('* * * * *', async () => {
+    const now = new Date();
+    // Use local server time for matching
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const currentTime = `${hours}:${minutes}`;
+    const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+
+    try {
+        const res = await pool.query(`
+            SELECT id, user_id, title, reminder_frequency, 
+            (SELECT json_agg(user_id) FROM task_assignees WHERE task_id = tasks.id) as assignees 
+            FROM tasks 
+            WHERE reminder_time = $1 AND completed = false
+        `, [currentTime]);
+
+        for (let task of res.rows) {
+            let shouldSend = false;
+            const freq = task.reminder_frequency;
+
+            if (freq === 'daily') {
+                shouldSend = true;
+            } else if (freq === 'weekdays' && dayOfWeek >= 1 && dayOfWeek <= 5) {
+                shouldSend = true;
+            } else if (freq === 'weekends' && (dayOfWeek === 0 || dayOfWeek === 6)) {
+                shouldSend = true;
+            }
+
+            if (shouldSend) {
+                const msg = `⏰ Reminder: "${task.title}"`;
+                
+                // Add to DB Notifications
+                await pool.query('INSERT INTO notifications (user_id, message, task_id) VALUES ($1, $2, $3)', [task.user_id, msg, task.id]);
+                await triggerPushNotification(task.user_id, msg, task.id);
+                
+                const assignees = task.assignees || [];
+                for (let uid of assignees) {
+                    await pool.query('INSERT INTO notifications (user_id, message, task_id) VALUES ($1, $2, $3)', [uid, msg, task.id]);
+                    await triggerPushNotification(uid, msg, task.id);
+                }
+            }
+        }
+    } catch (err) {
+        console.error("Error processing reminders:", err);
+    }
+});
+
 app.get('/api/user', (req, res) => {
     if (req.isAuthenticated()) res.json({ id: req.user.id, username: req.user.username });
     else res.status(401).json({ error: 'Not logged in' });
@@ -224,7 +273,7 @@ app.post('/api/tasks', ensureAuthenticated, async (req, res) => {
             'INSERT INTO tasks (user_id, title, due_date) VALUES ($1, $2, $3) RETURNING *',
             [req.user.id, title, dueDate || null]
         );
-        io.emit('workspace-update'); // Tell all clients to refresh data
+        io.emit('workspace-update'); 
         res.status(201).json(result.rows[0]);
     } catch (err) {
         res.status(500).json({ error: 'Failed to create task' });
@@ -232,7 +281,7 @@ app.post('/api/tasks', ensureAuthenticated, async (req, res) => {
 });
 
 app.put('/api/tasks/:id', ensureAuthenticated, async (req, res) => {
-    const { title, description, completed, dueDate, predecessors, assignees } = req.body;
+    const { title, description, completed, dueDate, predecessors, assignees, reminderTime, reminderFrequency } = req.body;
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
@@ -244,10 +293,10 @@ app.put('/api/tasks/:id', ensureAuthenticated, async (req, res) => {
         const oldAssignees = oldAssigneesRes.rows.map(r => r.user_id);
 
         const updateRes = await client.query(
-            `UPDATE tasks SET title = $1, description = $2, completed = $3, due_date = $4 
-             WHERE id = $5 AND (user_id = $6 OR EXISTS (SELECT 1 FROM task_assignees WHERE task_id = $5 AND user_id = $6))
+            `UPDATE tasks SET title = $1, description = $2, completed = $3, due_date = $4, reminder_time = $5, reminder_frequency = $6 
+             WHERE id = $7 AND (user_id = $8 OR EXISTS (SELECT 1 FROM task_assignees WHERE task_id = $7 AND user_id = $8))
              RETURNING id, user_id`,
-            [title, description || null, completed, dueDate || null, req.params.id, req.user.id]
+            [title, description || null, completed, dueDate || null, reminderTime || null, reminderFrequency || null, req.params.id, req.user.id]
         );
 
         if (updateRes.rowCount === 0) {
@@ -290,7 +339,7 @@ app.put('/api/tasks/:id', ensureAuthenticated, async (req, res) => {
 
         await client.query('COMMIT');
         
-        io.emit('workspace-update'); // Tell all clients to refresh data
+        io.emit('workspace-update'); 
         res.json({ success: true });
     } catch (err) {
         await client.query('ROLLBACK');

@@ -15,9 +15,10 @@
     let selectedDep = null;
     let selectedAssignee = null;
     
-    // Accordion State Variables
+    // UI State Variables
     let showAssignees = false;
     let showDependencies = false;
+    let showReminder = false;
     
     let isFullWorkspace = false;
     let saveStatus = "All changes saved";
@@ -46,7 +47,6 @@
     });
 
     onMount(async () => {
-        // Handle Automatic PWA App Code Updates
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.addEventListener('controllerchange', () => {
                 console.log("New app version detected. Refreshing...");
@@ -58,10 +58,8 @@
         if (user) {
             await Promise.all([loadTasks(), loadUsers(), loadNotifications()]);
             
-            // Connect WebSocket for Real-Time Data Sync
             const socket = io();
             socket.on('workspace-update', async () => {
-                console.log("Real-time update received!");
                 await Promise.all([loadTasks(), loadNotifications()]);
             });
 
@@ -124,7 +122,7 @@
                 body: JSON.stringify({ subscription })
             });
         } catch (err) {
-            console.error("Failed to establish device push pairing subscription:", err);
+            console.error("Failed to establish device push pairing:", err);
         }
     }
 
@@ -167,7 +165,6 @@
         if (res.ok) {
             newTaskTitle = '';
             newTaskDate = '';
-            // No need to loadTasks() manually here, the WebSocket will trigger it for us!
         }
     }
     
@@ -181,7 +178,14 @@
         const res = await fetch(`/api/tasks/${task.id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...task, dueDate: task.due_date, predecessors: task.predecessors, assignees: task.assignees })
+            body: JSON.stringify({ 
+                ...task, 
+                dueDate: task.due_date, 
+                predecessors: task.predecessors, 
+                assignees: task.assignees,
+                reminderTime: task.reminder_time,
+                reminderFrequency: task.reminder_frequency
+            })
         });
         
         if (!res.ok) {
@@ -196,8 +200,11 @@
             due_date: task.due_date ? task.due_date.split('T')[0] : '',
             predecessors: task.predecessors ? [...task.predecessors] : [],
             assignees: task.assignees ? [...task.assignees] : [],
-            description: task.description || ''
+            description: task.description || '',
+            reminder_time: task.reminder_time || '',
+            reminder_frequency: task.reminder_frequency || 'daily'
         };
+        showReminder = !!task.reminder_time;
         selectedDep = null;
         selectedAssignee = null;
         showAssignees = false;
@@ -241,7 +248,9 @@
                 dueDate: editingTask.due_date,
                 completed: editingTask.completed,
                 predecessors: editingTask.predecessors,
-                assignees: editingTask.assignees
+                assignees: editingTask.assignees,
+                reminderTime: showReminder && editingTask.reminder_time ? editingTask.reminder_time : null,
+                reminderFrequency: showReminder && editingTask.reminder_frequency ? editingTask.reminder_frequency : null
             })
         });
         if (res.ok) {
@@ -392,6 +401,7 @@
                                 {#if task.assignees && task.assignees.length > 0} 
                                     <span class="badge shared" title="Shared Task">👥 {task.assignees.length}</span> 
                                 {/if}
+                                {#if task.reminder_time} <span class="badge" title="Reminder Active">⏰ {task.reminder_time}</span> {/if}
                                 {#if task.due_date} <span class="badge">{task.due_date.split('T')[0]}</span> {/if}
                                 {#if task.description} <span class="desc-indicator" title="Contains notes">📝 Doc</span> {/if}
                             </div>
@@ -444,10 +454,28 @@
                 {#if !isFullWorkspace}
                     <input class="full-width title-input" type="text" bind:value={editingTask.title} placeholder="Task Title" />
                     
-                    <div class="modal-row">
-                        <label>Due Date:</label>
-                        <input type="date" bind:value={editingTask.due_date} />
+                    <div class="modal-row" style="justify-content: space-between;">
+                        <div style="display:flex; align-items:center; gap:10px;">
+                            <label>Due Date:</label>
+                            <input type="date" bind:value={editingTask.due_date} />
+                        </div>
+                        <button class="btn secondary small-btn" on:click={() => showReminder = !showReminder} title="Set Recurring Reminder">
+                            ⏰ {showReminder ? 'Remove Reminder' : 'Add Reminder'}
+                        </button>
                     </div>
+
+                    <!-- Reminder Setup Box -->
+                    {#if showReminder}
+                        <div class="reminder-box">
+                            <label>Remind me at:</label>
+                            <input type="time" bind:value={editingTask.reminder_time} />
+                            <select bind:value={editingTask.reminder_frequency} style="margin-left: 10px; width: auto;">
+                                <option value="daily">Every Day</option>
+                                <option value="weekdays">Every Weekday (Mon-Fri)</option>
+                                <option value="weekends">Every Weekend (Sat-Sun)</option>
+                            </select>
+                        </div>
+                    {/if}
 
                     <!-- Description/Notes Section with embedded Workspace trigger -->
                     <div class="description-section">
@@ -640,6 +668,9 @@
     .title-input { font-size: 1.1rem; font-weight: bold; }
     .modal-row { display: flex; align-items: center; gap: 10px; color: #ccc; }
     
+    .reminder-box { display: flex; align-items: center; background: #2a2a2a; padding: 10px 15px; border-radius: 6px; border-left: 3px solid #f1c40f; margin-top: -5px; }
+    .reminder-box label { font-size: 0.9rem; margin-right: 10px; }
+
     .description-section { margin-top: 5px; }
     .desc-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
     .desc-header label { font-size: 0.9rem; color: #ccc; }
