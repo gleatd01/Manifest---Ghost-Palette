@@ -432,16 +432,25 @@
                 {#if !isFullWorkspace}
                     <input class="full-width title-input" type="text" bind:value={editingTask.title} placeholder="Task Title" />
                     
-                    <div class="workspace-trigger-box">
-                        <label>Notes & Course Document Workspace:</label>
-                        <button class="btn primary full-width ws-btn" on:click={() => { isFullWorkspace = true; setTimeout(renderPreview, 50); }}>
-                            📖 Open Full Screen Document Editor (Markdown & LaTeX)
-                        </button>
-                    </div>
-
                     <div class="modal-row">
                         <label>Due Date:</label>
                         <input type="date" bind:value={editingTask.due_date} />
+                    </div>
+
+                    <!-- Description/Notes Section with embedded Workspace trigger -->
+                    <div class="description-section">
+                        <div class="desc-header">
+                            <label>Notes:</label>
+                            <button class="btn secondary small-btn expand-btn" on:click={() => { isFullWorkspace = true; setTimeout(renderPreview, 50); }} title="Open Full Screen Editor">
+                                ⛶ Full Workspace
+                            </button>
+                        </div>
+                        <textarea 
+                            class="simple-textarea full-width" 
+                            bind:value={editingTask.description} 
+                            placeholder="Add simple notes here..."
+                            rows="3"
+                        ></textarea>
                     </div>
                     
                     <!-- Assignment Section (Collapsible) -->
@@ -619,6 +628,13 @@
     .title-input { font-size: 1.1rem; font-weight: bold; }
     .modal-row { display: flex; align-items: center; gap: 10px; color: #ccc; }
     
+    .description-section { margin-top: 5px; }
+    .desc-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+    .desc-header label { font-size: 0.9rem; color: #ccc; }
+    .simple-textarea { resize: vertical; min-height: 80px; font-family: inherit; font-size: 0.95rem; }
+    .expand-btn { padding: 4px 8px; font-size: 0.75rem; background: #333; color: #aaa; border: 1px solid #555;}
+    .expand-btn:hover { background: #444; color: #fff; border-color: #666;}
+    
     .modal-section { background: #1a1a1a; padding: 15px; border-radius: 8px; border: 1px solid #333; }
     
     /* Accordion Styles */
@@ -641,11 +657,6 @@
     .btn.secondary { background: #444; color: #ccc; }
     .btn.secondary:hover { background: #555; }
     
-    .workspace-trigger-box { background: #2a2a2a; padding: 12px; border-radius: 6px; border: 1px dashed #555; margin-top: 5px;}
-    .workspace-trigger-box label { display: block; margin-bottom: 8px; font-size: 0.85rem; color: #bbb;}
-    .ws-btn { background: #3b3b98; padding: 12px;}
-    .ws-btn:hover { background: #4b4baf; }
-
     .modal.workspace-layout { max-width: 95vw; height: 90vh; display: flex; flex-direction: column; background: #161616; padding: 20px;}
     .modal-header-row { display: flex; justify-content: space-between; align-items: center; }
     .workspace-indicators { display: flex; align-items: center; gap: 15px; }
