@@ -39,9 +39,18 @@
     $: calendarDays = Array.from({ length: 42 }, (_, i) => {
         const dayNum = i - firstDayOfMonth + 1;
         if (dayNum > 0 && dayNum <= daysInMonth) {
-            const dateStr = new Date(currentYear, currentMonth, dayNum, 12).toISOString().split('T')[0];
+            const dateObj = new Date(currentYear, currentMonth, dayNum, 12);
+            const dateStr = dateObj.toISOString().split('T')[0];
             const dayTasks = activeTasks.filter(t => t.due_date && t.due_date.startsWith(dateStr));
-            return { dayNum, dateStr, tasks: dayTasks };
+            
+            // Normalize today for accurate comparison ignoring specific hours
+            const now = new Date();
+            const todayNorm = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12);
+            
+            const isPast = dateObj < todayNorm;
+            const isToday = dateStr === todayNorm.toISOString().split('T')[0];
+            
+            return { dayNum, dateStr, tasks: dayTasks, isPast, isToday };
         }
         return null;
     });
@@ -426,9 +435,9 @@
                     <div class="cal-grid">
                         {#each ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as day} <div class="cal-header-cell">{day}</div> {/each}
                         {#each calendarDays as dayObj}
-                            <div class="cal-cell {dayObj ? '' : 'empty'}">
+                            <div class="cal-cell {dayObj ? '' : 'empty'} {dayObj && dayObj.isPast ? 'past-date' : ''} {dayObj && dayObj.isToday ? 'today-date' : ''}">
                                 {#if dayObj}
-                                    <div class="day-num">{dayObj.dayNum}</div>
+                                    <div class="day-num {dayObj.isToday ? 'today-num' : ''}">{dayObj.dayNum}</div>
                                     <div class="day-tasks">
                                         {#each dayObj.tasks as t}
                                             <!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -680,25 +689,47 @@
     .badge.shared { background: #2f855a; }
     .desc-indicator { color: #646cff; font-size: 0.8rem; font-weight: bold; border: 1px solid #646cff; padding: 1px 5px; border-radius: 4px; }
 
-    /* Updated Calendar CSS for perfectly square, equally sized boxes */
+    /* Calendar CSS */
     .calendar { background: #1a1a1a; padding: 15px; border-radius: 8px; border: 1px solid #333; }
     .cal-controls { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; color: #fff; }
     .cal-controls button { background: #333; color: #fff; }
     .cal-controls h3 { margin: 0; font-size: 1.1rem; }
     .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
     .cal-header-cell { text-align: center; color: #888; font-size: 0.8rem; font-weight: bold; padding-bottom: 5px; }
+    
     .cal-cell { 
         background: #2a2a2a; border-radius: 4px; padding: 4px; 
         display: flex; flex-direction: column; gap: 2px;
-        aspect-ratio: 1 / 1; overflow-y: auto;
+        aspect-ratio: 1 / 1; overflow-y: auto; transition: background 0.2s;
     }
     .cal-cell.empty { background: transparent; }
+    
+    /* Date Highlighting */
+    .cal-cell.past-date { background: #1f1f1f; opacity: 0.5; }
+    .cal-cell.today-date { border: 1px solid #646cff; background: rgba(100, 108, 255, 0.08); box-shadow: inset 0 0 8px rgba(100, 108, 255, 0.2); }
+    
     .day-num { font-size: 0.8rem; color: #aaa; text-align: right; margin-bottom: 2px; flex-shrink: 0;}
+    .day-num.today-num { color: #646cff; font-weight: bold; font-size: 0.9rem; }
+    
     .day-tasks { display: flex; flex-direction: column; gap: 2px; }
     .mini-task { background: #646cff; color: #fff; font-size: 0.65rem; padding: 2px 4px; border-radius: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; flex-shrink: 0;}
     .mini-task.blocked { background: #8a6a00; opacity: 0.8; }
 
-    /* New Agenda View CSS */
+    /* Mobile Overrides for Calendar */
+    @media (max-width: 600px) {
+        .cal-grid { gap: 2px; }
+        .cal-cell { 
+            aspect-ratio: auto; /* Drop perfect square to allow vertical growth */
+            min-height: 75px; 
+            padding: 2px; 
+        }
+        .day-num { font-size: 0.7rem; margin-bottom: 1px; }
+        .day-num.today-num { font-size: 0.8rem; }
+        .cal-header-cell { font-size: 0.7rem; }
+        .mini-task { font-size: 0.55rem; padding: 1px 2px; }
+    }
+
+    /* Agenda View CSS */
     .agenda-view { display: flex; flex-direction: column; gap: 10px; }
     .agenda-item { display: flex; align-items: center; background: #2a2a2a; border-radius: 6px; padding: 12px; cursor: pointer; transition: background 0.2s; border-left: 4px solid #646cff; }
     .agenda-item:hover { background: #333; }
