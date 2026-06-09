@@ -14,6 +14,10 @@
     let selectedDep = null;
     let selectedAssignee = null;
     
+    // Accordion State Variables
+    let showAssignees = false;
+    let showDependencies = false;
+    
     let isFullWorkspace = false;
     let saveStatus = "All changes saved";
     let saveTimeout = null;
@@ -75,7 +79,6 @@
         if (res.ok) notifications = await res.json();
     }
 
-    // Web Push Subscription Logic
     async function requestNotificationPermission() {
         if (!('Notification' in window)) return;
         const permission = await Notification.requestPermission();
@@ -184,6 +187,8 @@
         };
         selectedDep = null;
         selectedAssignee = null;
+        showAssignees = false;
+        showDependencies = false;
         isFullWorkspace = false;
         saveStatus = "All changes saved";
         
@@ -341,7 +346,6 @@
                 <a href="/auth/google" class="btn google-btn">Login with Google</a>
             </div>
         {:else}
-            <!-- Native Device Cross-Device Push Activation Banner -->
             {#if pushPermissionStatus !== 'granted'}
                 <div class="push-activation-banner">
                     <p>📱 Enable Cross-Device Push notifications to receive alerts when tasks are updated or shared with you even when the app is closed!</p>
@@ -440,54 +444,70 @@
                         <input type="date" bind:value={editingTask.due_date} />
                     </div>
                     
-                    <!-- Assignment Section -->
+                    <!-- Assignment Section (Collapsible) -->
                     <div class="modal-section">
-                        <label>Assigned To (Shared Users):</label>
-                        <div class="dep-list">
-                            {#if editingTask.assignees.length === 0}
-                                <span style="color: #666; font-size: 0.85rem; font-style: italic;">Private (Only you)</span>
-                            {/if}
-                            {#each editingTask.assignees as uid}
-                                <span class="dep-badge shared-badge">
-                                    {getUserName(uid)} 
-                                    <button class="remove-dep" on:click={() => removeAssignee(uid)}>x</button>
-                                </span>
-                            {/each}
-                        </div>
-                        <div class="add-dep">
-                            <select bind:value={selectedAssignee}>
-                                <option value={null}>-- Select user to share with --</option>
-                                {#each allUsers.filter(u => u.id !== editingTask.user_id && !editingTask.assignees.includes(u.id)) as u}
-                                    <option value={u.id}>{u.username}</option>
-                                {/each}
-                            </select>
-                            <button class="btn secondary" on:click={addAssignee}>Add</button>
-                        </div>
+                        <button class="section-toggle" on:click={() => showAssignees = !showAssignees}>
+                            <span>Assigned To (Shared Users)</span>
+                            <span class="chevron">{showAssignees ? '▼' : '▶'}</span>
+                        </button>
+                        
+                        {#if showAssignees}
+                            <div class="section-content">
+                                <div class="dep-list">
+                                    {#if editingTask.assignees.length === 0}
+                                        <span style="color: #666; font-size: 0.85rem; font-style: italic;">Private (Only you)</span>
+                                    {/if}
+                                    {#each editingTask.assignees as uid}
+                                        <span class="dep-badge shared-badge">
+                                            {getUserName(uid)} 
+                                            <button class="remove-dep" on:click={() => removeAssignee(uid)}>x</button>
+                                        </span>
+                                    {/each}
+                                </div>
+                                <div class="add-dep">
+                                    <select bind:value={selectedAssignee}>
+                                        <option value={null}>-- Select user to share with --</option>
+                                        {#each allUsers.filter(u => u.id !== editingTask.user_id && !editingTask.assignees.includes(u.id)) as u}
+                                            <option value={u.id}>{u.username}</option>
+                                        {/each}
+                                    </select>
+                                    <button class="btn secondary" on:click={addAssignee}>Add</button>
+                                </div>
+                            </div>
+                        {/if}
                     </div>
 
-                    <!-- Dependencies Section -->
+                    <!-- Dependencies Section (Collapsible) -->
                     <div class="modal-section">
-                        <label>Depends on (Predecessors):</label>
-                        <div class="dep-list">
-                            {#if editingTask.predecessors.length === 0}
-                                <span style="color: #666; font-size: 0.85rem; font-style: italic;">No dependencies.</span>
-                            {/if}
-                            {#each editingTask.predecessors as pid}
-                                <span class="dep-badge">
-                                    {getTaskName(pid)} 
-                                    <button class="remove-dep" on:click={() => removeDep(pid)}>x</button>
-                                </span>
-                            {/each}
-                        </div>
-                        <div class="add-dep">
-                            <select bind:value={selectedDep}>
-                                <option value={null}>-- Select a prerequisite task --</option>
-                                {#each tasks.filter(t => t.id !== editingTask.id && !editingTask.predecessors.includes(t.id)) as t}
-                                    <option value={t.id}>{t.title} {t.completed ? '(Done)' : ''}</option>
-                                {/each}
-                            </select>
-                            <button class="btn secondary" on:click={addDep}>Add</button>
-                        </div>
+                        <button class="section-toggle" on:click={() => showDependencies = !showDependencies}>
+                            <span>Depends on (Predecessors)</span>
+                            <span class="chevron">{showDependencies ? '▼' : '▶'}</span>
+                        </button>
+
+                        {#if showDependencies}
+                            <div class="section-content">
+                                <div class="dep-list">
+                                    {#if editingTask.predecessors.length === 0}
+                                        <span style="color: #666; font-size: 0.85rem; font-style: italic;">No dependencies.</span>
+                                    {/if}
+                                    {#each editingTask.predecessors as pid}
+                                        <span class="dep-badge">
+                                            {getTaskName(pid)} 
+                                            <button class="remove-dep" on:click={() => removeDep(pid)}>x</button>
+                                        </span>
+                                    {/each}
+                                </div>
+                                <div class="add-dep">
+                                    <select bind:value={selectedDep}>
+                                        <option value={null}>-- Select a prerequisite task --</option>
+                                        {#each tasks.filter(t => t.id !== editingTask.id && !editingTask.predecessors.includes(t.id)) as t}
+                                            <option value={t.id}>{t.title} {t.completed ? '(Done)' : ''}</option>
+                                        {/each}
+                                    </select>
+                                    <button class="btn secondary" on:click={addDep}>Add</button>
+                                </div>
+                            </div>
+                        {/if}
                     </div>
 
                     <div class="modal-actions">
@@ -504,11 +524,7 @@
                             <textarea 
                                 class="ws-textarea" 
                                 bind:value={editingTask.description} 
-                                placeholder="Write detailed notes here...
-
-Use Markdown for rich text layout.
-Use $E=mc^2$ for inline LaTeX math equations.
-Use $$ to wrap a centered mathematical calculation block." 
+                                placeholder="Write detailed notes here...\n\nUse Markdown for rich text layout.\nUse $E=mc^2$ for inline LaTeX math equations.\nUse $$ to wrap a centered mathematical calculation block." 
                                 on:input={handleDescriptionInput}
                             ></textarea>
                         </div>
@@ -533,8 +549,8 @@ Use $$ to wrap a centered mathematical calculation block."
     
     .header-actions { display: flex; align-items: center; gap: 15px; }
     .bell-container { position: relative; }
-    .bell-btn { background: transparent; color: #ccc; font-size: 1.3rem; padding: 5px; position: relative; display: flex; align-items: center; justify-content: center; }
-    .bell-btn:hover { color: #fff; background: rgba(255,255,255,0.1); }
+    .bell-btn { background: transparent; color: #ccc; font-size: 1.3rem; padding: 5px; position: relative; display: flex; align-items: center; justify-content: center; border: none; cursor: pointer; }
+    .bell-btn:hover { color: #fff; background: rgba(255,255,255,0.1); border-radius: 50%; }
     .notification-badge { position: absolute; top: -2px; right: -2px; background: #e74c3c; color: white; font-size: 0.65rem; font-weight: bold; padding: 2px 5px; border-radius: 10px; }
     
     .notifications-dropdown { position: absolute; top: 40px; right: 0; width: 300px; background: #2a2a2a; border: 1px solid #444; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.6); z-index: 50; overflow: hidden; }
@@ -604,8 +620,15 @@ Use $$ to wrap a centered mathematical calculation block."
     .modal-row { display: flex; align-items: center; gap: 10px; color: #ccc; }
     
     .modal-section { background: #1a1a1a; padding: 15px; border-radius: 8px; border: 1px solid #333; }
-    .modal-section label { display: block; color: #aaa; margin-bottom: 10px; font-size: 0.9rem; font-weight: bold; }
-    .dep-list { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 15px; }
+    
+    /* Accordion Styles */
+    .section-toggle { width: 100%; display: flex; justify-content: space-between; align-items: center; background: transparent; border: none; color: #aaa; font-size: 0.9rem; font-weight: bold; padding: 0; cursor: pointer; transition: color 0.2s; }
+    .section-toggle:hover { color: #fff; }
+    .section-content { margin-top: 15px; border-top: 1px solid #333; padding-top: 15px; display: flex; flex-direction: column; gap: 15px; }
+    .chevron { font-size: 0.8rem; color: #666; transition: color 0.2s; }
+    .section-toggle:hover .chevron { color: #fff; }
+
+    .dep-list { display: flex; flex-wrap: wrap; gap: 8px; }
     .dep-badge { background: #333; border: 1px solid #555; padding: 5px 10px; border-radius: 6px; font-size: 0.85rem; display: flex; align-items: center; gap: 8px; color: #ddd; }
     .shared-badge { background: #1b4332; border-color: #2d6a4f; }
     .remove-dep { background: transparent; border: none; color: #ff5555; cursor: pointer; font-weight: bold; padding: 0 4px; font-size: 1rem; }

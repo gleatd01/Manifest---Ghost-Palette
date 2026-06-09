@@ -7,7 +7,6 @@ self.addEventListener('fetch', event => {
     );
 });
 
-// V8 Addition: Listen to Native System Push Events from OS
 self.addEventListener('push', event => {
     let data = { title: 'Manifest Update', body: 'You have a new update.' };
     try {
@@ -31,12 +30,10 @@ self.addEventListener('push', event => {
     );
 });
 
-// Click action to open app and focus on the corresponding workflow document
 self.addEventListener('notificationclick', event => {
     event.notification.close();
     event.waitUntil(
         clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
-            // Focus on an existing open window if possible
             for (const client of clientList) {
                 if (client.url === '/' && 'focus' in client) {
                     return client.focus();

@@ -18,7 +18,6 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Setup VAPID Keys for Web Push
 let vapidPublicKey = process.env.VAPID_PUBLIC_KEY;
 let vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
 
@@ -104,7 +103,6 @@ async function initDB() {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         `);
-        // V8 Addition: Table for device push subscriptions
         await pool.query(`
             CREATE TABLE IF NOT EXISTS push_subscriptions (
                 id SERIAL PRIMARY KEY,
@@ -157,7 +155,6 @@ const ensureAuthenticated = (req, res, next) => {
     res.status(401).json({ error: 'Unauthorized' });
 };
 
-// Helper function to send Web Push Notifications
 async function triggerPushNotification(userId, message, taskId) {
     try {
         const subsRes = await pool.query('SELECT subscription FROM push_subscriptions WHERE user_id = $1', [userId]);
@@ -168,9 +165,7 @@ async function triggerPushNotification(userId, message, taskId) {
                 const sub = JSON.parse(row.subscription);
                 await webpush.sendNotification(sub, payload);
             } catch (pushErr) {
-                console.error("Failed to send push to individual device subscription:", pushErr.statusCode);
                 if (pushErr.statusCode === 410 || pushErr.statusCode === 404) {
-                    // Subscription expired or uninstalled, remove it from DB
                     await pool.query('DELETE FROM push_subscriptions WHERE subscription = $1', [row.subscription]);
                 }
             }
@@ -298,7 +293,6 @@ app.put('/api/tasks/:id', ensureAuthenticated, async (req, res) => {
     }
 });
 
-// Notification Endpoints
 app.get('/api/notifications', ensureAuthenticated, async (req, res) => {
     try {
         const result = await pool.query('SELECT * FROM notifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT 30', [req.user.id]);
@@ -325,7 +319,6 @@ app.post('/api/notifications/read-all', ensureAuthenticated, async (req, res) =>
     }
 });
 
-// NEW: Push Notification Subscriptions Endpoints
 app.get('/api/push/key', ensureAuthenticated, (req, res) => {
     res.json({ publicKey: vapidPublicKey });
 });
@@ -334,7 +327,6 @@ app.post('/api/push/subscribe', ensureAuthenticated, async (req, res) => {
     const { subscription } = req.body;
     try {
         const subStr = JSON.stringify(subscription);
-        // Avoid duplicate entries for exact same subscription string
         const check = await pool.query('SELECT id FROM push_subscriptions WHERE user_id = $1 AND subscription = $2', [req.user.id, subStr]);
         if (check.rows.length === 0) {
             await pool.query('INSERT INTO push_subscriptions (user_id, subscription) VALUES ($1, $2)', [req.user.id, subStr]);
