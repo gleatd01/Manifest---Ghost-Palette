@@ -702,7 +702,8 @@
         display: flex; flex-direction: column; gap: 2px;
         aspect-ratio: 1 / 1; overflow-y: auto; transition: background 0.2s;
     }
-    .cal-cell.empty { background: transparent; }
+    
+    .cal-cell.empty { background: #1c1c1c; opacity: 0.6; border: none; }
     
     /* Date Highlighting */
     .cal-cell.past-date { background: #1f1f1f; opacity: 0.5; }
@@ -715,12 +716,16 @@
     .mini-task { background: #646cff; color: #fff; font-size: 0.65rem; padding: 2px 4px; border-radius: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; flex-shrink: 0;}
     .mini-task.blocked { background: #8a6a00; opacity: 0.8; }
 
-    /* Mobile Overrides for Calendar */
+    /* Mobile Overrides */
     @media (max-width: 600px) {
+        main { padding: 5px; }
+        .container { padding: 15px 10px; border-radius: 8px;}
+        .calendar { padding: 0; border: none; background: transparent; }
+        
         .cal-grid { gap: 2px; }
         .cal-cell { 
-            aspect-ratio: auto; /* Drop perfect square to allow vertical growth */
-            min-height: 75px; 
+            aspect-ratio: auto; 
+            min-height: 65px; 
             padding: 2px; 
         }
         .day-num { font-size: 0.7rem; margin-bottom: 1px; }
