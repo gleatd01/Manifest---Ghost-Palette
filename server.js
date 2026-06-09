@@ -10,12 +10,35 @@ import { Strategy as LocalStrategy } from 'passport-local';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import webpush from 'web-push';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Setup VAPID Keys for Web Push
+let vapidPublicKey = process.env.VAPID_PUBLIC_KEY;
+let vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
+
+if (!vapidPublicKey || !vapidPrivateKey) {
+    console.log("VAPID Keys not found in environment. Generating temporary keys...");
+    const keys = webpush.generateVAPIDKeys();
+    vapidPublicKey = keys.publicKey;
+    vapidPrivateKey = keys.privateKey;
+    console.log("=========================================");
+    console.log("SAVE THESE TO YOUR .ENV FOR PERSISTENCE:");
+    console.log(`VAPID_PUBLIC_KEY=${vapidPublicKey}`);
+    console.log(`VAPID_PRIVATE_KEY=${vapidPrivateKey}`);
+    console.log("=========================================");
+}
+
+webpush.setVapidDetails(
+    'mailto:admin@example.com',
+    vapidPublicKey,
+    vapidPrivateKey
+);
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -71,7 +94,26 @@ async function initDB() {
                 PRIMARY KEY (task_id, user_id)
             );
         `);
-        console.log("Database initialized successfully.");
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS notifications (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                message VARCHAR(255) NOT NULL,
+                is_read BOOLEAN DEFAULT false,
+                task_id INTEGER REFERENCES tasks(id) ON DELETE CASCADE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+        // V8 Addition: Table for device push subscriptions
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS push_subscriptions (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                subscription TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+        console.log("Database initialized successfully with Web Push support.");
     } catch (err) {
         console.error("Error initializing DB:", err);
     }
@@ -114,6 +156,29 @@ const ensureAuthenticated = (req, res, next) => {
     if (req.isAuthenticated()) return next();
     res.status(401).json({ error: 'Unauthorized' });
 };
+
+// Helper function to send Web Push Notifications
+async function triggerPushNotification(userId, message, taskId) {
+    try {
+        const subsRes = await pool.query('SELECT subscription FROM push_subscriptions WHERE user_id = $1', [userId]);
+        const payload = JSON.stringify({ title: 'Manifest Workspace', body: message, taskId: taskId });
+        
+        for (let row of subsRes.rows) {
+            try {
+                const sub = JSON.parse(row.subscription);
+                await webpush.sendNotification(sub, payload);
+            } catch (pushErr) {
+                console.error("Failed to send push to individual device subscription:", pushErr.statusCode);
+                if (pushErr.statusCode === 410 || pushErr.statusCode === 404) {
+                    // Subscription expired or uninstalled, remove it from DB
+                    await pool.query('DELETE FROM push_subscriptions WHERE subscription = $1', [row.subscription]);
+                }
+            }
+        }
+    } catch (err) {
+        console.error("Error routing push notifications:", err);
+    }
+}
 
 app.get('/api/user', (req, res) => {
     if (req.isAuthenticated()) res.json({ id: req.user.id, username: req.user.username });
@@ -171,16 +236,24 @@ app.put('/api/tasks/:id', ensureAuthenticated, async (req, res) => {
     try {
         await client.query('BEGIN');
         
+        const oldStateRes = await client.query('SELECT completed FROM tasks WHERE id = $1', [req.params.id]);
+        const wasCompleted = oldStateRes.rows.length > 0 ? oldStateRes.rows[0].completed : false;
+        
+        const oldAssigneesRes = await client.query('SELECT user_id FROM task_assignees WHERE task_id = $1', [req.params.id]);
+        const oldAssignees = oldAssigneesRes.rows.map(r => r.user_id);
+
         const updateRes = await client.query(
             `UPDATE tasks SET title = $1, description = $2, completed = $3, due_date = $4 
              WHERE id = $5 AND (user_id = $6 OR EXISTS (SELECT 1 FROM task_assignees WHERE task_id = $5 AND user_id = $6))
-             RETURNING id`,
+             RETURNING id, user_id`,
             [title, description || null, completed, dueDate || null, req.params.id, req.user.id]
         );
 
         if (updateRes.rowCount === 0) {
             throw new Error('Unauthorized to edit this task');
         }
+        
+        const taskOwnerId = updateRes.rows[0].user_id;
 
         if (Array.isArray(predecessors)) {
             await client.query('DELETE FROM task_dependencies WHERE successor_id = $1', [req.params.id]);
@@ -193,6 +266,24 @@ app.put('/api/tasks/:id', ensureAuthenticated, async (req, res) => {
             await client.query('DELETE FROM task_assignees WHERE task_id = $1', [req.params.id]);
             for (let uid of assignees) {
                 await client.query('INSERT INTO task_assignees (task_id, user_id) VALUES ($1, $2)', [req.params.id, uid]);
+                
+                if (!oldAssignees.includes(uid) && uid !== req.user.id) {
+                    const msg = `${req.user.username} shared a document/task with you: "${title}"`;
+                    await client.query('INSERT INTO notifications (user_id, message, task_id) VALUES ($1, $2, $3)', [uid, msg, req.params.id]);
+                    await triggerPushNotification(uid, msg, req.params.id);
+                }
+            }
+        }
+        
+        if (completed && !wasCompleted) {
+            const usersToNotify = new Set(assignees || []);
+            usersToNotify.add(taskOwnerId);
+            usersToNotify.delete(req.user.id);
+            
+            for (let uid of usersToNotify) {
+                const msg = `${req.user.username} completed: "${title}"`;
+                await client.query('INSERT INTO notifications (user_id, message, task_id) VALUES ($1, $2, $3)', [uid, msg, req.params.id]);
+                await triggerPushNotification(uid, msg, req.params.id);
             }
         }
 
@@ -200,9 +291,58 @@ app.put('/api/tasks/:id', ensureAuthenticated, async (req, res) => {
         res.json({ success: true });
     } catch (err) {
         await client.query('ROLLBACK');
+        console.error(err);
         res.status(500).json({ error: 'Failed to update task' });
     } finally {
         client.release();
+    }
+});
+
+// Notification Endpoints
+app.get('/api/notifications', ensureAuthenticated, async (req, res) => {
+    try {
+        const result = await pool.query('SELECT * FROM notifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT 30', [req.user.id]);
+        res.json(result.rows);
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to fetch notifications' });
+    }
+});
+
+app.post('/api/notifications/:id/read', ensureAuthenticated, async (req, res) => {
+    try {
+        await pool.query('UPDATE notifications SET is_read = true WHERE id = $1 AND user_id = $2', [req.params.id, req.user.id]);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to mark read' });
+    }
+});
+app.post('/api/notifications/read-all', ensureAuthenticated, async (req, res) => {
+    try {
+        await pool.query('UPDATE notifications SET is_read = true WHERE user_id = $1', [req.user.id]);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to mark all read' });
+    }
+});
+
+// NEW: Push Notification Subscriptions Endpoints
+app.get('/api/push/key', ensureAuthenticated, (req, res) => {
+    res.json({ publicKey: vapidPublicKey });
+});
+
+app.post('/api/push/subscribe', ensureAuthenticated, async (req, res) => {
+    const { subscription } = req.body;
+    try {
+        const subStr = JSON.stringify(subscription);
+        // Avoid duplicate entries for exact same subscription string
+        const check = await pool.query('SELECT id FROM push_subscriptions WHERE user_id = $1 AND subscription = $2', [req.user.id, subStr]);
+        if (check.rows.length === 0) {
+            await pool.query('INSERT INTO push_subscriptions (user_id, subscription) VALUES ($1, $2)', [req.user.id, subStr]);
+        }
+        res.status(201).json({ success: true });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Failed to save subscription' });
     }
 });
 

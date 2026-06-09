@@ -6,3 +6,45 @@ self.addEventListener('fetch', event => {
         fetch(event.request).catch(() => caches.match(event.request))
     );
 });
+
+// V8 Addition: Listen to Native System Push Events from OS
+self.addEventListener('push', event => {
+    let data = { title: 'Manifest Update', body: 'You have a new update.' };
+    try {
+        if (event.data) {
+            data = event.data.json();
+        }
+    } catch (e) {
+        data = { title: 'Manifest Update', body: event.data.text() };
+    }
+
+    const options = {
+        body: data.body,
+        icon: '/icon.svg',
+        badge: '/icon.svg',
+        data: { taskId: data.taskId },
+        vibrate: [100, 50, 100]
+    };
+
+    event.waitUntil(
+        self.registration.showNotification(data.title, options)
+    );
+});
+
+// Click action to open app and focus on the corresponding workflow document
+self.addEventListener('notificationclick', event => {
+    event.notification.close();
+    event.waitUntil(
+        clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
+            // Focus on an existing open window if possible
+            for (const client of clientList) {
+                if (client.url === '/' && 'focus' in client) {
+                    return client.focus();
+                }
+            }
+            if (clients.openWindow) {
+                return clients.openWindow('/');
+            }
+        })
+    );
+});

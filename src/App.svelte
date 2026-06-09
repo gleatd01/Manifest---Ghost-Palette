@@ -4,6 +4,7 @@
     let user = null;
     let tasks = [];
     let allUsers = []; 
+    let notifications = [];
     
     let newTaskTitle = '';
     let newTaskDate = '';
@@ -16,6 +17,9 @@
     let isFullWorkspace = false;
     let saveStatus = "All changes saved";
     let saveTimeout = null;
+    
+    let showNotifications = false;
+    let pushPermissionStatus = 'default';
 
     let currentDate = new Date();
     $: currentMonth = currentDate.getMonth();
@@ -24,6 +28,7 @@
     $: firstDayOfMonth = new Date(currentYear, currentMonth, 1).getDay();
 
     $: activeTasks = tasks.filter(t => !t.completed);
+    $: unreadCount = notifications.filter(n => !n.is_read).length;
 
     $: calendarDays = Array.from({ length: 42 }, (_, i) => {
         const dayNum = i - firstDayOfMonth + 1;
@@ -38,7 +43,15 @@
     onMount(async () => {
         await checkUser();
         if (user) {
-            await Promise.all([loadTasks(), loadUsers()]);
+            await Promise.all([loadTasks(), loadUsers(), loadNotifications()]);
+            setInterval(loadNotifications, 30000);
+            
+            if ('Notification' in window) {
+                pushPermissionStatus = Notification.permission;
+                if (Notification.permission === 'granted') {
+                    configurePushSubscription();
+                }
+            }
         }
     });
 
@@ -55,6 +68,57 @@
     async function loadTasks() {
         const res = await fetch('/api/tasks');
         if (res.ok) tasks = await res.json();
+    }
+    
+    async function loadNotifications() {
+        const res = await fetch('/api/notifications');
+        if (res.ok) notifications = await res.json();
+    }
+
+    // Web Push Subscription Logic
+    async function requestNotificationPermission() {
+        if (!('Notification' in window)) return;
+        const permission = await Notification.requestPermission();
+        pushPermissionStatus = permission;
+        if (permission === 'granted') {
+            await configurePushSubscription();
+        }
+    }
+
+    async function configurePushSubscription() {
+        if (!('serviceWorker' in navigator)) return;
+        try {
+            const reg = await navigator.serviceWorker.ready;
+            const keyRes = await fetch('/api/push/key');
+            if (!keyRes.ok) return;
+            const { publicKey } = await keyRes.json();
+            
+            const convertedKey = urlBase64ToUint8Array(publicKey);
+            
+            const subscription = await reg.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: convertedKey
+            });
+            
+            await fetch('/api/push/subscribe', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ subscription })
+            });
+        } catch (err) {
+            console.error("Failed to establish device push pairing subscription:", err);
+        }
+    }
+
+    function urlBase64ToUint8Array(base64String) {
+        const padding = '='.repeat((4 - base64String.length % 4) % 4);
+        const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
+        const rawData = window.atob(base64);
+        const outputArray = new Uint8Array(rawData.length);
+        for (let i = 0; i < rawData.length; ++i) {
+            outputArray[i] = rawData.charCodeAt(i);
+        }
+        return outputArray;
     }
 
     function isBlocked(task) {
@@ -186,30 +250,42 @@
 
         let rawText = editingTask.description || '';
 
-        // Process LaTeX block elements $$equation$$
         rawText = rawText.replace(/\$\$([\s\S]*?)\$\$/g, (match, equation) => {
-            try {
-                return '<div class="katex-block-wrapper">' + window.katex.renderToString(equation.trim(), { displayMode: true, throwOnError: false }) + '</div>';
-            } catch (e) {
-                return match;
-            }
+            try { return '<div class="katex-block-wrapper">' + window.katex.renderToString(equation.trim(), { displayMode: true, throwOnError: false }) + '</div>'; } 
+            catch (e) { return match; }
         });
 
-        // Process LaTeX inline elements $ equation $
         rawText = rawText.replace(/\$([^\$\n]+?)\$/g, (match, equation) => {
-            try {
-                return window.katex.renderToString(equation.trim(), { displayMode: false, throwOnError: false });
-            } catch (e) {
-                return match;
-            }
+            try { return window.katex.renderToString(equation.trim(), { displayMode: false, throwOnError: false }); } 
+            catch (e) { return match; }
         });
 
-        // Compile Markdown formatting
         if (window.marked && window.marked.parse) {
             previewEl.innerHTML = window.marked.parse(rawText);
         } else {
             previewEl.innerText = rawText;
         }
+    }
+    
+    async function handleNotificationClick(notif) {
+        if (!notif.is_read) {
+            await fetch(`/api/notifications/${notif.id}/read`, { method: 'POST' });
+            await loadNotifications();
+        }
+        
+        showNotifications = false;
+        
+        if (notif.task_id) {
+            const targetTask = tasks.find(t => t.id === notif.task_id);
+            if (targetTask) {
+                openEdit(targetTask);
+            }
+        }
+    }
+    
+    async function markAllNotificationsRead() {
+        await fetch('/api/notifications/read-all', { method: 'POST' });
+        await loadNotifications();
     }
 
     function changeMonth(offset) { currentDate = new Date(currentYear, currentMonth + offset, 1); }
@@ -220,7 +296,43 @@
     <div class="container">
         <div class="header">
             <h1>Manifest <span>- Ghost Palette</span></h1>
-            {#if user} <button class="logout-btn" on:click={logout}>Logout</button> {/if}
+            
+            {#if user} 
+                <div class="header-actions">
+                    <div class="bell-container">
+                        <button class="bell-btn" on:click={() => showNotifications = !showNotifications}>
+                            🔔
+                            {#if unreadCount > 0}
+                                <span class="notification-badge">{unreadCount}</span>
+                            {/if}
+                        </button>
+                        
+                        {#if showNotifications}
+                            <div class="notifications-dropdown">
+                                <div class="notif-header">
+                                    <h4>Notifications</h4>
+                                    {#if unreadCount > 0}
+                                        <button class="mark-read-btn" on:click={markAllNotificationsRead}>Mark all read</button>
+                                    {/if}
+                                </div>
+                                <div class="notif-list">
+                                    {#if notifications.length === 0}
+                                        <p class="empty-notifs">No notifications yet.</p>
+                                    {/if}
+                                    {#each notifications as notif}
+                                        <!-- svelte-ignore a11y-click-events-have-key-events -->
+                                        <div class="notif-item {notif.is_read ? 'read' : 'unread'}" on:click={() => handleNotificationClick(notif)}>
+                                            <p>{notif.message}</p>
+                                            <span class="notif-time">{new Date(notif.created_at).toLocaleDateString()}</span>
+                                        </div>
+                                    {/each}
+                                </div>
+                            </div>
+                        {/if}
+                    </div>
+                    <button class="logout-btn" on:click={logout}>Logout</button> 
+                </div>
+            {/if}
         </div>
         
         {#if !user}
@@ -229,6 +341,14 @@
                 <a href="/auth/google" class="btn google-btn">Login with Google</a>
             </div>
         {:else}
+            <!-- Native Device Cross-Device Push Activation Banner -->
+            {#if pushPermissionStatus !== 'granted'}
+                <div class="push-activation-banner">
+                    <p>📱 Enable Cross-Device Push notifications to receive alerts when tasks are updated or shared with you even when the app is closed!</p>
+                    <button class="btn primary small-btn" on:click={requestNotificationPermission}>Enable Alerts</button>
+                </div>
+            {/if}
+
             <div class="view-tabs">
                 <button class:active={currentView === 'list'} on:click={() => currentView = 'list'}>List</button>
                 <button class:active={currentView === 'calendar'} on:click={() => currentView = 'calendar'}>Calendar</button>
@@ -371,11 +491,10 @@
                     </div>
 
                     <div class="modal-actions">
-                        <button class="btn secondary" on:click={() => editingTask = null}>Cancel</button>
-                        <button class="btn primary" on:click={saveEdit}>Save</button>
+                        <button class="btn secondary" on:click={() => {editingTask = null; loadNotifications();}}>Cancel</button>
+                        <button class="btn primary" on:click={() => {saveEdit(); editingTask = null; loadNotifications();}}>Save</button>
                     </div>
                 {:else}
-                    <!-- Full Document Workspace View (Splitscreen Markdown + KaTeX) -->
                     <div class="workspace-title-bar">
                         <input class="ws-title-input" type="text" bind:value={editingTask.title} placeholder="Document Title" on:input={handleDescriptionInput} />
                     </div>
@@ -412,6 +531,30 @@ Use $$ to wrap a centered mathematical calculation block."
     h1 { margin: 0; font-size: 1.5rem; color: #fff; }
     h1 span { font-weight: normal; color: #777; font-size: 1.2rem; }
     
+    .header-actions { display: flex; align-items: center; gap: 15px; }
+    .bell-container { position: relative; }
+    .bell-btn { background: transparent; color: #ccc; font-size: 1.3rem; padding: 5px; position: relative; display: flex; align-items: center; justify-content: center; }
+    .bell-btn:hover { color: #fff; background: rgba(255,255,255,0.1); }
+    .notification-badge { position: absolute; top: -2px; right: -2px; background: #e74c3c; color: white; font-size: 0.65rem; font-weight: bold; padding: 2px 5px; border-radius: 10px; }
+    
+    .notifications-dropdown { position: absolute; top: 40px; right: 0; width: 300px; background: #2a2a2a; border: 1px solid #444; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.6); z-index: 50; overflow: hidden; }
+    .notif-header { display: flex; justify-content: space-between; align-items: center; padding: 10px 15px; background: #333; border-bottom: 1px solid #444; }
+    .notif-header h4 { margin: 0; font-size: 0.95rem; color: #eee; }
+    .mark-read-btn { background: transparent; border: none; color: #646cff; font-size: 0.8rem; cursor: pointer; padding: 0;}
+    .mark-read-btn:hover { text-decoration: underline; }
+    
+    .notif-list { max-height: 350px; overflow-y: auto; }
+    .empty-notifs { padding: 15px; text-align: center; color: #777; font-size: 0.9rem; margin: 0; }
+    .notif-item { padding: 12px 15px; border-bottom: 1px solid #333; cursor: pointer; transition: background 0.2s; }
+    .notif-item:last-child { border-bottom: none; }
+    .notif-item:hover { background: #3a3a3a; }
+    .notif-item.unread { background: #2d2d3a; border-left: 3px solid #646cff; }
+    .notif-item p { margin: 0 0 5px 0; font-size: 0.85rem; color: #ddd; line-height: 1.3; }
+    .notif-time { font-size: 0.7rem; color: #777; }
+
+    .push-activation-banner { background: #2c3e50; border-left: 4px solid #3498db; padding: 12px 15px; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; gap: 15px; margin-bottom: 20px; }
+    .push-activation-banner p { margin: 0; font-size: 0.85rem; color: #ecf0f1; line-height: 1.4; }
+
     .btn, button { padding: 8px 14px; cursor: pointer; border: none; border-radius: 6px; font-weight: bold; transition: 0.2s; }
     .google-btn { display: inline-block; background: #fff; color: #333; text-decoration: none; text-align: center; width: 100%; box-sizing: border-box; padding: 12px;}
     .logout-btn { background: #444; color: #ccc; font-size: 0.9rem;}
@@ -480,7 +623,6 @@ Use $$ to wrap a centered mathematical calculation block."
     .ws-btn { background: #3b3b98; padding: 12px;}
     .ws-btn:hover { background: #4b4baf; }
 
-    /* Immersive Document Workspace Formatting */
     .modal.workspace-layout { max-width: 95vw; height: 90vh; display: flex; flex-direction: column; background: #161616; padding: 20px;}
     .modal-header-row { display: flex; justify-content: space-between; align-items: center; }
     .workspace-indicators { display: flex; align-items: center; gap: 15px; }
@@ -501,7 +643,6 @@ Use $$ to wrap a centered mathematical calculation block."
     
     .preview-pane { background: #1a1a1a; padding: 15px; border-radius: 6px; border: 1px solid #252525; overflow-y: auto; box-sizing: border-box; }
     
-    /* Markdown / Rendered Styling inside Preview Pane */
     .markdown-body { color: #e0e0e0; font-size: 1.05rem; line-height: 1.6; }
     :global(.markdown-body h1) { font-size: 1.6rem; color: #fff; border-bottom: 1px solid #333; padding-bottom: 6px; margin-top: 0; }
     :global(.markdown-body h2) { font-size: 1.3rem; color: #f0f0f0; margin-top: 20px; }
