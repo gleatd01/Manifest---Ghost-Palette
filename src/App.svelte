@@ -78,7 +78,7 @@
     });
 
     function changeTimeRange(offset) {
-        if (calendarMode === 'month') {
+        if (calendarMode === 'month' || currentView === 'gantt') {
             currentDate = new Date(currentYear, currentMonth + offset, 1);
         } else {
             currentDate = new Date(currentYear, currentMonth, currentDate.getDate() + (offset * 7));
@@ -364,7 +364,7 @@
 </script>
 
 <main>
-    <div class="container">
+    <div class="container" style={currentView === 'gantt' ? 'max-width: 900px;' : ''}>
         <div class="header">
             <h1>Manifest <span>- Ghost Palette</span></h1>
             
@@ -423,6 +423,7 @@
                 <button class:active={currentView === 'list'} on:click={() => currentView = 'list'}>List</button>
                 <button class:active={currentView === 'calendar'} on:click={() => currentView = 'calendar'}>Calendar</button>
                 <button class:active={currentView === 'agenda'} on:click={() => currentView = 'agenda'}>Agenda</button>
+                <button class:active={currentView === 'gantt'} on:click={() => currentView = 'gantt'}>Gantt</button>
             </div>
 
             {#if currentView === 'list'}
@@ -512,6 +513,55 @@
                             </div>
                         </div>
                     {/each}
+                </div>
+            {:else if currentView === 'gantt'}
+                <div class="gantt-chart">
+                    <div class="cal-controls">
+                        <button on:click={() => changeTimeRange(-1)}>◀</button>
+                        <h3>{currentDate.toLocaleString('default', { month: 'long', year: 'numeric' })} Timeline</h3>
+                        <button on:click={() => changeTimeRange(1)}>▶</button>
+                    </div>
+
+                    <div class="gantt-scroll-container">
+                        <div class="gantt-grid" style="grid-template-columns: 160px repeat({daysInMonth}, 1fr);">
+                            <!-- Headers -->
+                            <div class="gantt-header-cell label-head">Workspace Documents</div>
+                            {#each Array.from({ length: daysInMonth }, (_, i) => i + 1) as day}
+                                <div class="gantt-header-cell day-head">{day}</div>
+                            {/each}
+
+                            <!-- Data Rows -->
+                            {#if activeTasks.filter(t => t.due_date && new Date(t.due_date).getMonth() === currentMonth && new Date(t.due_date).getFullYear() === currentYear).length === 0}
+                                <div class="gantt-empty-row" style="grid-column: 1 / span {daysInMonth + 1};">
+                                    No tasks with deadlines in this month view.
+                                </div>
+                            {/if}
+
+                            {#each activeTasks as task}
+                                {#if task.due_date}
+                                    {@const taskDate = new Date(task.due_date)}
+                                    {#if taskDate.getMonth() === currentMonth && taskDate.getFullYear() === currentYear}
+                                        {@const endDay = taskDate.getDate()}
+                                        {@const startDay = Math.max(1, endDay - 3)}
+
+                                        <!-- svelte-ignore a11y-click-events-have-key-events -->
+                                        <div class="gantt-task-title" on:click={() => openEdit(task)}>
+                                            <span>{task.title}</span>
+                                        </div>
+                                        
+                                        <div class="gantt-row-timeline" style="grid-column: span {daysInMonth}; grid-template-columns: repeat({daysInMonth}, 1fr);">
+                                            <!-- svelte-ignore a11y-click-events-have-key-events -->
+                                            <div class="gantt-task-bar {isBlocked(task) ? 'blocked' : ''}" 
+                                                 style="grid-column: {startDay} / span {endDay - startDay + 1};"
+                                                 on:click={() => openEdit(task)}>
+                                                {#if isBlocked(task)}🔒 {/if}{task.title}
+                                            </div>
+                                        </div>
+                                    {/if}
+                                {/if}
+                            {/each}
+                        </div>
+                    </div>
                 </div>
             {/if}
         {/if}
@@ -664,9 +714,9 @@
 </main>
 
 <style>
-    :global(body) { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+    :global(body) { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #121212; color: #fff; margin: 0; }
     main { display: flex; justify-content: center; padding: 20px; min-height: 100vh; box-sizing: border-box; }
-    .container { width: 100%; max-width: 600px; background: #222; padding: 30px; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); display: flex; flex-direction: column; }
+    .container { width: 100%; max-width: 600px; background: #222; padding: 30px; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); display: flex; flex-direction: column; transition: max-width 0.2s ease-in-out; }
     .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 15px; margin-bottom: 20px; }
     h1 { margin: 0; font-size: 1.5rem; color: #fff; }
     h1 span { font-weight: normal; color: #777; font-size: 1.2rem; }
@@ -735,7 +785,6 @@
     .cal-mode-toggle button { background: transparent; color: #888; border: none; padding: 2px 8px; font-size: 0.7rem; cursor: pointer; border-radius: 0; }
     .cal-mode-toggle button.active { background: #646cff; color: #fff; }
     
-    /* Strict Uniform Grid layout */
     .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); grid-auto-rows: 1fr; gap: 4px; align-content: start; }
     .cal-header-cell { text-align: center; color: #888; font-size: 0.8rem; font-weight: bold; padding-bottom: 5px; }
     
@@ -745,10 +794,7 @@
         aspect-ratio: 1 / 1; overflow-y: auto; transition: background 0.2s;
     }
     
-    /* Transparent Placeholder cells outside month bounds */
     .cal-cell.empty { background: transparent !important; border: none !important; box-shadow: none !important; opacity: 0; pointer-events: none; }
-    
-    /* Date Highlighting */
     .cal-cell.past-date { background: #1f1f1f; opacity: 0.5; }
     .cal-cell.today-date { border: 1px solid #646cff; background: rgba(100, 108, 255, 0.08); box-shadow: inset 0 0 8px rgba(100, 108, 255, 0.2); }
     
@@ -759,18 +805,31 @@
     .mini-task { background: #646cff; color: #fff; font-size: 0.65rem; padding: 2px 4px; border-radius: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; flex-shrink: 0;}
     .mini-task.blocked { background: #8a6a00; opacity: 0.8; }
 
-    /* Mobile Overrides */
+    /* Gantt Chart Tab Styles */
+    .gantt-chart { background: #1a1a1a; padding: 20px; border-radius: 8px; border: 1px solid #333; display: flex; flex-direction: column; gap: 15px; }
+    .gantt-scroll-container { width: 100%; overflow-x: auto; border: 1px solid #333; border-radius: 6px; background: #111; }
+    .gantt-grid { display: grid; align-items: center; min-width: 750px; }
+    
+    .gantt-header-cell { background: #222; padding: 10px; font-size: 0.8rem; font-weight: bold; color: #888; text-align: center; border-bottom: 1px solid #333; border-right: 1px solid #222; }
+    .gantt-header-cell.label-head { text-align: left; color: #fff; background: #1a1a1a; position: sticky; left: 0; z-index: 10; border-right: 2px solid #333; }
+    .gantt-header-cell.day-head { font-family: monospace; }
+    
+    .gantt-task-title { padding: 12px 10px; font-size: 0.9rem; color: #eee; background: #1a1a1a; border-bottom: 1px solid #262626; border-right: 2px solid #333; position: sticky; left: 0; z-index: 10; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .gantt-task-title:hover { background: #252525; color: #646cff; }
+    
+    .gantt-row-timeline { display: grid; background: #151515; height: 100%; align-items: center; padding: 0 4px; border-bottom: 1px solid #222; box-sizing: border-box; }
+    .gantt-task-bar { background: #646cff; color: #fff; font-size: 0.75rem; font-weight: bold; padding: 6px 10px; border-radius: 4px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-left: 3px solid #4d54d6; box-shadow: 0 2px 6px rgba(0,0,0,0.4); }
+    .gantt-task-bar:hover { filter: brightness(1.1); }
+    .gantt-task-bar.blocked { background: #8a6a00; border-left-color: #b38a00; }
+    .gantt-empty-row { padding: 25px; text-align: center; color: #555; font-style: italic; font-size: 0.9rem; }
+
     @media (max-width: 600px) {
         main { padding: 5px; }
         .container { padding: 15px 10px; border-radius: 8px;}
         .calendar { padding: 0; border: none; background: transparent; }
         
         .cal-grid { gap: 2px; align-content: start; grid-auto-rows: 1fr;}
-        .cal-cell { 
-            aspect-ratio: auto; 
-            min-height: 65px; 
-            padding: 2px; 
-        }
+        .cal-cell { aspect-ratio: auto; min-height: 65px; padding: 2px; }
         .day-num { font-size: 0.7rem; margin-bottom: 1px; }
         .day-num.today-num { font-size: 0.8rem; }
         .cal-header-cell { font-size: 0.7rem; }

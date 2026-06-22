@@ -311,7 +311,7 @@ app.put('/api/tasks/:id', ensureAuthenticated, async (req, res) => {
         if (Array.isArray(assignees)) {
             await client.query('DELETE FROM task_assignees WHERE task_id = $1', [req.params.id]);
             for (let uid of assignees) {
-                await client.query('INSERT INTO task_assignees (task_id, user_id) VALUES ($1, $2)', [req.params.id, uid]);
+                await client.query('INSERT INTO task_assignees (task_id, user_id) VALUES ($1, $2)', [task.id, uid]);
                 
                 if (!oldAssignees.includes(uid) && uid !== req.user.id) {
                     const msg = `${req.user.username} shared a document/task with you: "${title}"`;
