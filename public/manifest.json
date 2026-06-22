@@ -1,17 +1,14 @@
 {
-  "name": "Manifest - Ghost Palette",
-  "short_name": "Manifest",
-  "start_url": "/",
-  "display": "standalone",
-  "background_color": "#1e1e1e",
-  "theme_color": "#1e1e1e",
-  "description": "Task and dependency manager with markdown and latex capabilities",
+  "short_name": "Manifest Studio",
+  "name": "Manifest - Collaborative Math Workspace",
+  "description": "Stateless secure Markdown/LaTeX document tracking matrix.",
   "icons": [
-    {
-      "src": "/icon.svg",
-      "sizes": "192x192 512x512 any",
-      "type": "image/svg+xml",
-      "purpose": "any maskable"
-    }
-  ]
+    {"src": "icon-192.png", "type": "image/png", "sizes": "192x192"},
+    {"src": "icon-512.png", "type": "image/png", "sizes": "512x512"}
+  ],
+  "start_url": "/",
+  "background_color": "#0d0d0d",
+  "theme_color": "#646cff",
+  "display": "standalone",
+  "orientation": "portrait-primary"
 }

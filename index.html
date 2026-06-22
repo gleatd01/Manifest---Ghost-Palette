@@ -3,25 +3,20 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Manifest</title>
-    <link rel="manifest" href="/manifest.json" />
-    <meta name="theme-color" content="#1e1e1e" />
-    <link rel="apple-touch-icon" href="/icon.svg" />
-    
-    <!-- Libraries for Markdown processing and LaTeX rendering -->
+    <title>Manifest Workspace Studio</title>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/katex/dist/katex.min.js"></script>
   </head>
-  <body style="background: #1e1e1e; color: #eee; margin: 0; padding: 0;">
+  <body>
     <div id="app"></div>
     <script type="module" src="/src/main.js"></script>
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
           navigator.serviceWorker.register('/sw.js')
-            .then(reg => console.log('Service Worker registered for PWA!'))
-            .catch(err => console.error('Service Worker registration failed: ', err));
+            .then(reg => console.log('Service Worker structural anchor compiled:', reg.scope))
+            .catch(err => console.error('Service Worker loading failure:', err));
         });
       }
     </script>
