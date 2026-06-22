@@ -1,161 +1,282 @@
 <script>
     import { onMount } from 'svelte';
-    import { io } from 'socket.io-client'; 
-    import StudyView from './StudyView.svelte';
+    import { io } from 'socket.io-client';
+    import * as pdfjsLib from 'pdfjs-dist';
 
-    let user = null; 
-    let tasks = []; 
-    let allUsers = []; 
-    let notifications = [];
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+    let user = null;
+    let tasks = [];
     
-    let newTaskTitle = '';
-    let newTaskDate = '';
-    let currentView = 'list';
-    let editingTask = null; 
+    // Core v20 Nav Tabs
+    let currentView = 'list'; // 'list', 'calendar', 'gantt', 'settings'
+    let editingTask = null;
     
-    let showAssignees = false;
-    let showDependencies = false;
-    let showReminder = false;
-    let isFullWorkspace = false;
-    let saveStatus = "All changes saved";
-    let saveTimeout = null;
-    let showNotifications = false;
-    let pushPermissionStatus = 'default';
-    let billingStatusMessage = '';
+    // Study Mode Variables (Task-Level)
+    let isStudyMode = false;
+    let canvasRef;
+    let pdfDoc = null;
+    let pageNum = 1;
+    let isRendering = false;
 
-    let userTimezone = 'UTC';
-    let apiKeys = [];
-    let newKeyName = '';
-    let generatedCleartextKey = '';
-    let showKeyModal = false;
-
+    // Calendar UI State
     let currentDate = new Date();
     $: currentMonth = currentDate.getMonth();
     $: currentYear = currentDate.getFullYear();
-    $: daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate(); 
-    $: firstDayOfMonth = new Date(currentYear, currentMonth, 1).getDay(); 
-
+    $: daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+    $: firstDayOfMonth = new Date(currentYear, currentMonth, 1).getDay();
     $: activeTasks = tasks.filter(t => !t.completed);
-    $: unreadCount = notifications.filter(n => !n.is_read).length;
-
-    $: totalCellsNeeded = firstDayOfMonth + daysInMonth;
-    $: totalRows = Math.ceil(totalCellsNeeded / 7); 
-
-    $: calendarDays = Array.from({ length: totalRows * 7 }, (_, i) => {
-        const dayNum = i - firstDayOfMonth + 1;
-        if (dayNum > 0 && dayNum <= daysInMonth) {
-            const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
-            const dayTasks = activeTasks.filter(t => t.due_date && t.due_date.startsWith(dateStr));
-            const now = new Date();
-            const todayNorm = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12);
-            return { dayNum, dateStr, tasks: dayTasks, isPast: new Date(currentYear, currentMonth, dayNum, 12) < todayNorm, isToday: dateStr === todayNorm.toISOString().split('T')[0] };
-        }
-        return null; 
-    });
 
     onMount(async () => {
-        const urlParams = new URLSearchParams(window.location.search);
-        if (urlParams.get('billing') === 'success') {
-            billingStatusMessage = '🎉 Checkout validation success! Premium server tier capability unlocked.';
-            window.history.replaceState({}, document.title, "/");
-        } else if (urlParams.get('billing') === 'cancel') {
-            billingStatusMessage = 'Stripe financial transaction interface cancelled.';
-            window.history.replaceState({}, document.title, "/");
-        }
-
         await checkUser();
         if (user) {
-            await Promise.all([loadTasks(), loadUsers(), loadNotifications()]);
-            const socket = io(); 
-            socket.on('workspace-update', async () => {
-                await Promise.all([loadTasks(), loadNotifications()]);
-            });
+            await loadTasks();
+            const socket = io();
+            socket.on('workspace-update', async () => await loadTasks());
         }
     });
 
     async function checkUser() { const res = await fetch('/api/user'); if (res.ok) user = await res.json(); }
     async function loadTasks() { const res = await fetch('/api/tasks'); if (res.ok) tasks = await res.json(); }
-    async function loadUsers() { const res = await fetch('/api/users'); if (res.ok) allUsers = await res.json(); }
-    async function loadNotifications() { const res = await fetch('/api/notifications'); if (res.ok) notifications = await res.json(); }
 
-    async function upgradeToPro() {
-        const res = await fetch('/api/checkout', { method: 'POST' });
-        const data = await res.json();
-        if (data.url) window.location.href = data.url; 
+    let newTaskTitle = '';
+    async function addTask() {
+        if (!newTaskTitle.trim()) return;
+        await fetch('/api/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: newTaskTitle }) });
+        newTaskTitle = '';
+    }
+
+    async function toggleComplete(task) {
+        task.completed = !task.completed;
+        tasks = [...tasks];
+        await fetch(`/api/tasks/${task.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(task) });
+    }
+
+    function openEdit(task) {
+        editingTask = { ...task };
+        isStudyMode = false;
+    }
+
+    async function saveEdit() {
+        await fetch(`/api/tasks/${editingTask.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(editingTask)
+        });
+        loadTasks();
+    }
+
+    function closeEdit() {
+        editingTask = null;
+        isStudyMode = false;
+        pdfDoc = null;
+    }
+
+    // --- Study Mode Logic ---
+    function openStudyMode() {
+        isStudyMode = true;
+        if (editingTask.pdf_url) {
+            setTimeout(() => loadPdf(editingTask.pdf_url), 100);
+        }
+    }
+
+    async function loadPdf(url) {
+        try {
+            pdfDoc = await pdfjsLib.getDocument(url).promise;
+            renderPage(1);
+        } catch(e) { console.error("PDF Load Error", e); }
+    }
+
+    async function renderPage(num) {
+        isRendering = true;
+        pageNum = num;
+        const page = await pdfDoc.getPage(num);
+        const viewport = page.getViewport({ scale: 1.5 });
+        canvasRef.height = viewport.height;
+        canvasRef.width = viewport.width;
+        await page.render({ canvasContext: canvasRef.getContext('2d'), viewport: viewport }).promise;
+        isRendering = false;
+    }
+
+    // Handle Local File Uploads for Demo purposes
+    function handlePdfUpload(e) {
+        const file = e.target.files[0];
+        if (file) {
+            editingTask.pdf_url = URL.createObjectURL(file);
+            saveEdit();
+            loadPdf(editingTask.pdf_url);
+        }
+    }
+
+    function handleAudioUpload(e) {
+        const file = e.target.files[0];
+        if (file) {
+            editingTask.audio_url = URL.createObjectURL(file);
+            saveEdit();
+        }
+    }
+
+    // Render Preview
+    function renderPreview() {
+        const previewEl = document.getElementById('md-preview');
+        if (!previewEl || !editingTask) return;
+        let txt = editingTask.description || '';
+        txt = txt.replace(/\$\$([\s\S]*?)\$\$/g, (m, eq) => '<div class="katex-block-wrapper">' + window.katex.renderToString(eq.trim(), { displayMode: true, throwOnError: false }) + '</div>');
+        txt = txt.replace(/\$([^\$\n]+?)\$/g, (m, eq) => window.katex.renderToString(eq.trim(), { displayMode: false, throwOnError: false }));
+        if (window.marked) previewEl.innerHTML = window.marked.parse(txt);
     }
 </script>
 
-{#if billingStatusMessage}
-    <div class="billing-banner"><span>{billingStatusMessage}</span><button on:click={() => billingStatusMessage = ''}>&times;</button></div>
-{/if}
-
 <main>
-    <div class="container {currentView === 'study' ? 'study-mode-container' : ''}">
+    <div class="container {isStudyMode ? 'study-expanded' : ''}">
         <div class="header">
-            <h1>Manifest <span>- v24 Dashboard</span></h1>
-            {#if user}
-                <div class="header-actions">
-                    <button class="logout-btn" on:click={() => window.location.href='/auth/logout'}>Logout</button>
-                </div>
-            {/if}
+            <h1>Manifest <span>- v25 Architecture</span></h1>
+            {#if user} <button class="logout-btn" on:click={() => window.location.href='/auth/logout'}>Logout</button> {/if}
         </div>
 
-        {#if !user}
-            <div class="login-box">
-                <p>Please log in to manage your tasks.</p>
-                <a href="/auth/google" class="btn google-btn">Login with Google</a>
-            </div>
-        {:else}
+        {#if user && !isStudyMode}
             <div class="view-tabs">
-                <button class:active={currentView === 'list'} on:click={() => currentView = 'list'}>Registry List</button>
-                <button class:active={currentView === 'calendar'} on:click={() => currentView = 'calendar'}>Calendar Tracking</button>
-                <button class:active={currentView === 'study'} on:click={() => currentView = 'study'} style="color: #646cff;">📖 Study Room</button>
-                <button class:active={currentView === 'settings'} on:click={() => currentView = 'settings'}>Settings Hub</button>
+                <button class:active={currentView === 'list'} on:click={() => currentView = 'list'}>Task List</button>
+                <button class:active={currentView === 'calendar'} on:click={() => currentView = 'calendar'}>Calendar</button>
+                <button class:active={currentView === 'gantt'} on:click={() => currentView = 'gantt'}>Gantt</button>
+                <button class:active={currentView === 'settings'} on:click={() => currentView = 'settings'}>Settings</button>
             </div>
+        {/if}
 
+        {#if !user}
+            <div class="login-box"><a href="/auth/google" class="btn google-btn">Login with Google</a></div>
+        {:else if !isStudyMode && !editingTask}
+            
             {#if currentView === 'list'}
                 <div class="task-input">
-                    <input class="flex-2" type="text" bind:value={newTaskTitle} placeholder="Initialize workflow component assignment..." />
-                    <button class="add-btn">+</button>
+                    <input type="text" bind:value={newTaskTitle} placeholder="New task..." />
+                    <button class="add-btn" on:click={addTask}>+</button>
                 </div>
                 <ul class="task-list">
                     {#each activeTasks as task}
                         <li class="task-item">
-                            <div class="task-content"><span class="task-title">{task.title}</span></div>
+                            <input type="checkbox" checked={task.completed} on:change={() => toggleComplete(task)} />
+                            <!-- svelte-ignore a11y-click-events-have-key-events -->
+                            <div class="task-content" on:click={() => openEdit(task)}>{task.title}</div>
                         </li>
                     {/each}
                 </ul>
-            
+
             {:else if currentView === 'calendar'}
                 <div class="calendar">
+                    <!-- Restored Month & Week Headers -->
+                    <div class="cal-controls">
+                        <button on:click={() => currentDate = new Date(currentYear, currentMonth - 1, 1)}>◀</button>
+                        <h3>{currentDate.toLocaleString('default', { month: 'long', year: 'numeric' })}</h3>
+                        <button on:click={() => currentDate = new Date(currentYear, currentMonth + 1, 1)}>▶</button>
+                    </div>
                     <div class="cal-grid">
-                        {#each calendarDays as day}
-                            <div class="cal-cell {day ? '' : 'empty'}">
-                                {#if day}
-                                    <div class="day-num">{day.dayNum}</div>
-                                    {#each day.tasks as t}
-                                        <div class="mini-task">{t.title}</div>
-                                    {/each}
-                                {/if}
+                        {#each ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as day}<div class="cal-header-cell">{day}</div>{/each}
+                        {#each Array(firstDayOfMonth) as _}<div class="cal-cell empty"></div>{/each}
+                        {#each Array(daysInMonth) as _, i}
+                            <div class="cal-cell">
+                                <div class="day-num">{i + 1}</div>
+                                {#each activeTasks.filter(t => t.due_date && new Date(t.due_date).getDate() === (i+1)) as t}
+                                    <!-- svelte-ignore a11y-click-events-have-key-events -->
+                                    <div class="mini-task" on:click={() => openEdit(t)}>{t.title}</div>
+                                {/each}
                             </div>
                         {/each}
                     </div>
                 </div>
 
-            {:else if currentView === 'study'}
-                <StudyView />
-                
+            {:else if currentView === 'gantt'}
+                <!-- Restored Gantt Placeholder -->
+                <div class="gantt-view">
+                    <h2>Project Timeline</h2>
+                    {#if activeTasks.length === 0} <p>No tasks to map.</p> {/if}
+                    {#each activeTasks as task}
+                        <div class="gantt-row">
+                            <div class="gantt-label">{task.title}</div>
+                            <div class="gantt-bar"></div>
+                        </div>
+                    {/each}
+                </div>
+
             {:else if currentView === 'settings'}
-                <div class="settings-container">
-                    <div class="settings-card">
-                        <h3>Premium Subscriptions</h3>
-                        <p>Billing Matrix Status Status: <strong>{user.plan_type.toUpperCase()}</strong></p>
-                        {#if user.plan_type !== 'pro'}
-                            <button class="btn primary" on:click={upgradeToPro}>Upgrade to Server Architecture Tier</button>
-                        {/if}
-                    </div>
+                <div class="settings-card">
+                    <h2>Account & Billing</h2>
+                    <p>Plan: <strong>{user.plan_type.toUpperCase()}</strong></p>
+                    {#if user.plan_type !== 'pro'}
+                        <button class="btn primary" on:click={async () => { const res = await fetch('/api/checkout', {method:'POST'}); const d = await res.json(); if(d.url) window.location.href = d.url; }}>Upgrade to Pro Server Tier</button>
+                    {/if}
                 </div>
             {/if}
+        {/if}
+
+        <!-- TASK EDIT MODAL (Not fullscreen yet) -->
+        {#if editingTask && !isStudyMode}
+            <div class="modal-overlay">
+                <div class="modal">
+                    <h2>Edit Task</h2>
+                    <input class="full-width" type="text" bind:value={editingTask.title} />
+                    
+                    <div class="study-launch-banner">
+                        <p>Want to write LaTeX notes alongside an Audio Transcription?</p>
+                        <button class="btn primary full-width" on:click={openStudyMode}>📚 Open Study Mode (Attach PDF & Audio)</button>
+                    </div>
+
+                    <div class="modal-actions">
+                        <button class="btn secondary" on:click={closeEdit}>Cancel</button>
+                        <button class="btn primary" on:click={() => {saveEdit(); closeEdit();}}>Save</button>
+                    </div>
+                </div>
+            </div>
+        {/if}
+
+        <!-- 📚 FULLSCREEN STUDY MODE (Inside the Task) -->
+        {#if isStudyMode}
+            <div class="study-workspace">
+                <div class="study-header">
+                    <h2>Study Mode: {editingTask.title}</h2>
+                    <button class="btn secondary" on:click={closeEdit}>Exit Study Mode</button>
+                </div>
+
+                <div class="split-layout">
+                    <!-- LEFT: PDF Viewer -->
+                    <div class="pdf-panel">
+                        <div class="panel-tools">
+                            {#if !editingTask.pdf_url}
+                                <label>Upload PDF: <input type="file" accept="application/pdf" on:change={handlePdfUpload} /></label>
+                            {:else}
+                                <div class="pdf-nav">
+                                    <button on:click={() => renderPage(pageNum-1)} disabled={pageNum<=1}>Prev</button>
+                                    <span>Page {pageNum}</span>
+                                    <button on:click={() => renderPage(pageNum+1)} disabled={!pdfDoc || pageNum >= pdfDoc.numPages}>Next</button>
+                                </div>
+                            {/if}
+                        </div>
+                        <div class="canvas-container">
+                            <canvas bind:this={canvasRef}></canvas>
+                        </div>
+                    </div>
+
+                    <!-- RIGHT: Audio, Transcription & LaTeX Notes -->
+                    <div class="transcript-panel">
+                        <div class="audio-block">
+                            {#if !editingTask.audio_url}
+                                <label>Upload Lecture Audio: <input type="file" accept="audio/*" on:change={handleAudioUpload} /></label>
+                            {:else}
+                                <audio controls class="audio-player" src={editingTask.audio_url}></audio>
+                            {/if}
+                        </div>
+                        
+                        <div class="notes-block">
+                            <p class="section-label">Audio Transcription</p>
+                            <textarea bind:value={editingTask.transcription} on:input={saveEdit} placeholder="Transcription text goes here..."></textarea>
+                            
+                            <p class="section-label">LaTeX / Markdown Notes</p>
+                            <textarea bind:value={editingTask.description} on:input={() => { saveEdit(); renderPreview(); }} placeholder="Type your notes here..."></textarea>
+                            <div id="md-preview" class="markdown-body"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         {/if}
     </div>
 </main>
@@ -163,35 +284,70 @@
 <style>
     :global(body) { background: #0c0c0c; color: #e2e8f0; font-family: system-ui, sans-serif; margin: 0; padding: 0; }
     main { padding: 20px; display: flex; justify-content: center; }
-    .container { width: 100%; max-width: 900px; background: #141414; padding: 25px; border-radius: 10px; border: 1px solid #222; transition: max-width 0.3s ease; }
-    .study-mode-container { max-width: 1400px; }
+    .container { width: 100%; max-width: 900px; background: #141414; padding: 25px; border-radius: 10px; border: 1px solid #222; }
+    .study-expanded { max-width: 1500px; height: 90vh; display: flex; flex-direction: column; }
+    
     .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #232323; padding-bottom: 15px; margin-bottom: 20px; }
-    h1 { margin: 0; font-size: 1.6rem; color: #fff; }
-    h1 span { font-weight: normal; color: #777; font-size: 1.2rem; }
-    .logout-btn { background: #262626; color: #aaa; border: 1px solid #3a3a3a; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; }
-    .logout-btn:hover { background: #333; color: #fff; }
     .view-tabs { display: flex; gap: 8px; margin-bottom: 20px; border-bottom: 1px solid #222; padding-bottom: 12px; }
-    .view-tabs button { background: none; border: none; color: #777; padding: 8px 16px; cursor: pointer; font-weight: 600; transition: 0.2s;}
-    .view-tabs button:hover { color: #fff; }
-    .view-tabs button.active { background: #222; color: #fff; border-radius: 4px; border: 1px solid #333; }
+    .view-tabs button { background: none; border: none; color: #777; padding: 8px 16px; cursor: pointer; font-weight: 600; }
+    .view-tabs button.active { background: #222; color: #fff; border-radius: 4px; }
     
-    .login-box { text-align: center; padding: 4px 0; background: #1a1a1a; border: 1px solid #2d2d2d; border-radius: 8px; margin-top: 40px; }
-    .google-btn { display: inline-block; text-decoration: none; background: #4285f4; color: white; border: none; padding: 10px 20px; border-radius: 4px; font-weight: 500; margin-top: 10px; }
+    .btn { padding: 10px 15px; border-radius: 6px; border: none; font-weight: bold; cursor: pointer; }
+    .btn.primary { background: #646cff; color: white; }
+    .btn.secondary { background: #333; color: white; }
+    .full-width { width: 100%; box-sizing: border-box; }
+    
+    .task-input { display: flex; gap: 10px; margin-bottom: 20px; }
+    .task-input input { flex: 1; padding: 10px; background: #1a1a1a; border: 1px solid #333; color: white; border-radius: 4px; }
+    .add-btn { background: #646cff; color: white; border: none; padding: 0 20px; font-size: 1.5rem; border-radius: 4px; }
+    .task-list { list-style: none; padding: 0; margin: 0; }
+    .task-item { display: flex; align-items: center; gap: 15px; background: #1a1a1a; padding: 15px; margin-bottom: 10px; border-radius: 6px; border: 1px solid #222; cursor: pointer; }
 
-    .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; align-content: start; }
-    .cal-cell { background: #1a1a1a; padding: 4px; border-radius: 4px; aspect-ratio: 1 / 1; min-height: 70px; display: flex; flex-direction: column; }
-    .cal-cell.empty { background: transparent; pointer-events: none; opacity: 0; }
-    .mini-task { background: #646cff; color: #fff; font-size: 0.65rem; padding: 2px; border-radius: 3px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+    /* Modal */
+    .modal-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 100; }
+    .modal { background: #1a1a1a; padding: 25px; border-radius: 8px; width: 400px; border: 1px solid #333; }
+    .modal h2 { margin-top: 0; }
+    .study-launch-banner { background: #1f1f3a; padding: 15px; border-radius: 6px; margin: 20px 0; border: 1px solid #2a2a5a; text-align: center; }
+    .study-launch-banner p { margin-top: 0; font-size: 0.9rem; color: #a5b4fc; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+
+    /* Calendar (Restored UI) */
+    .cal-controls { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+    .cal-controls button { background: #333; color: white; border: none; padding: 5px 10px; border-radius: 4px; }
+    .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
+    .cal-header-cell { text-align: center; font-weight: bold; color: #888; padding-bottom: 10px; }
+    .cal-cell { background: #1a1a1a; min-height: 80px; padding: 5px; border-radius: 4px; }
+    .cal-cell.empty { background: transparent; }
+    .day-num { text-align: right; color: #666; font-size: 0.8rem; }
+    .mini-task { background: #646cff; color: white; font-size: 0.7rem; padding: 2px 4px; border-radius: 2px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+
+    /* Gantt (Restored Placeholder) */
+    .gantt-view { background: #1a1a1a; padding: 20px; border-radius: 8px; }
+    .gantt-row { display: flex; align-items: center; margin-bottom: 10px; border-bottom: 1px solid #222; padding-bottom: 10px; }
+    .gantt-label { width: 150px; font-weight: bold; }
+    .gantt-bar { height: 20px; background: #646cff; border-radius: 10px; width: 60%; }
+
+    /* Settings */
+    .settings-card { background: #1a1a1a; padding: 20px; border-radius: 8px; }
+
+    /* STUDY MODE FULLSCREEN */
+    .study-workspace { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+    .study-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 15px; margin-bottom: 15px; }
+    .study-header h2 { margin: 0; color: #646cff; }
+    .split-layout { display: flex; gap: 20px; flex: 1; min-height: 0; }
     
-    .task-input { display: flex; gap: 12px; margin-bottom: 25px; }
-    .task-input input { flex: 1; background: #181818; border: 1px solid #2b2b2b; color: white; font-size: 1rem; border-radius: 6px; padding: 12px; }
-    .add-btn { background: #646cff; color: white; border: none; width: 48px; font-size: 1.5rem; border-radius: 6px; cursor: pointer; font-weight: bold; }
+    .pdf-panel { flex: 3; background: #080808; display: flex; flex-direction: column; border-radius: 8px; border: 1px solid #333; overflow: hidden; }
+    .panel-tools { padding: 10px; background: #1a1a1a; border-bottom: 1px solid #333; }
+    .canvas-container { flex: 1; overflow: auto; display: flex; justify-content: center; padding: 20px; }
+    canvas { background: white; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
+    .pdf-nav button { background: #333; color: white; border: none; padding: 4px 10px; border-radius: 4px; }
+
+    .transcript-panel { flex: 2; display: flex; flex-direction: column; gap: 15px; min-height: 0; }
+    .audio-block { background: #1a1a1a; padding: 15px; border-radius: 8px; border: 1px solid #333; }
+    .audio-player { width: 100%; }
     
-    .task-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; }
-    .task-item { display: flex; align-items: center; background: #1a1a1a; border: 1px solid #262626; padding: 14px 18px; border-radius: 8px; gap: 15px; }
-    .task-content { flex: 1; display: flex; align-items: center; }
-    .task-title { font-size: 1rem; color: #eee; }
-    
-    .settings-card { background: #1a1a1a; border: 1px solid #262626; border-radius: 10px; padding: 25px; display: flex; flex-direction: column; gap: 12px; }
-    .btn.primary { background: #646cff; color: #fff; border: none; padding: 10px; border-radius: 6px; font-weight: bold; cursor: pointer; }
+    .notes-block { flex: 1; background: #1a1a1a; padding: 15px; border-radius: 8px; border: 1px solid #333; display: flex; flex-direction: column; overflow-y: auto; }
+    .section-label { font-weight: bold; color: #888; margin: 0 0 5px 0; font-size: 0.85rem; text-transform: uppercase; }
+    .notes-block textarea { background: #111; color: white; border: 1px solid #333; padding: 10px; border-radius: 4px; font-family: inherit; margin-bottom: 15px; resize: vertical; min-height: 100px; }
+    .markdown-body { padding: 10px; background: #111; border-radius: 4px; min-height: 100px; }
 </style>
