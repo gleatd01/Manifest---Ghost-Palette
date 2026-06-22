@@ -14,6 +14,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import webpush from 'web-push';
 import cron from 'node-cron';
+import crypto from 'crypto';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -69,6 +70,9 @@ async function initDB() {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         `);
+        
+        try { await pool.query(`ALTER TABLE users ADD COLUMN timezone VARCHAR(50) DEFAULT 'UTC'`); } catch (e) {}
+
         await pool.query(`
             CREATE TABLE IF NOT EXISTS tasks (
                 id SERIAL PRIMARY KEY,
@@ -116,6 +120,15 @@ async function initDB() {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         `);
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS user_api_keys (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                key_name VARCHAR(100) NOT NULL,
+                api_key_hash VARCHAR(64) UNIQUE NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
         console.log("Database initialized successfully.");
     } catch (err) {
         console.error("Error initializing DB:", err);
@@ -155,10 +168,35 @@ app.get('/auth/google', passport.authenticate('google', { scope: ['profile'] }))
 app.get('/auth/google/callback', passport.authenticate('google', { failureRedirect: '/' }), (req, res) => res.redirect('/'));
 app.post('/auth/logout', (req, res, next) => { req.logout((err) => { if (err) return next(err); res.json({ message: 'Logged out' }); }); });
 
-const ensureAuthenticated = (req, res, next) => {
-    if (req.isAuthenticated()) return next();
-    res.status(401).json({ error: 'Unauthorized' });
-};
+async function ensureAuthenticatedOrApiKey(req, res, next) {
+    const apiKey = req.headers['x-api-key'];
+    
+    if (apiKey) {
+        try {
+            const inboundHash = crypto.createHash('sha256').update(apiKey).digest('hex');
+            const keyResult = await pool.query('SELECT user_id FROM user_api_keys WHERE api_key_hash = $1', [inboundHash]);
+            
+            if (keyResult.rows.length > 0) {
+                const userId = keyResult.rows[0].user_id;
+                const userResult = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
+                if (userResult.rows.length > 0) {
+                    req.user = userResult.rows[0];
+                    return next(); 
+                }
+            }
+            return res.status(401).json({ error: 'Invalid or revoked API Key' });
+        } catch (err) {
+            console.error("API Key processing exception:", err);
+            return res.status(500).json({ error: 'Internal API verification error' });
+        }
+    }
+
+    if (req.isAuthenticated && req.isAuthenticated()) {
+        return next();
+    }
+    
+    res.status(401).json({ error: 'Authentication required. Please provide a session or X-API-Key header.' });
+}
 
 async function triggerPushNotification(userId, message, taskId) {
     try {
@@ -181,23 +219,21 @@ async function triggerPushNotification(userId, message, taskId) {
 }
 
 cron.schedule('* * * * *', async () => {
-    const now = new Date();
-    const hours = String(now.getHours()).padStart(2, '0');
-    const minutes = String(now.getMinutes()).padStart(2, '0');
-    const currentTime = `${hours}:${minutes}`;
-    const dayOfWeek = now.getDay(); 
-
     try {
         const res = await pool.query(`
-            SELECT id, user_id, title, reminder_frequency, 
-            (SELECT json_agg(user_id) FROM task_assignees WHERE task_id = tasks.id) as assignees 
-            FROM tasks 
-            WHERE reminder_time = $1 AND completed = false
-        `, [currentTime]);
+            SELECT t.id, t.user_id, t.title, t.reminder_frequency,
+            EXTRACT(DOW FROM CURRENT_TIMESTAMP AT TIME ZONE COALESCE(u.timezone, 'UTC')) as local_dow,
+            (SELECT json_agg(user_id) FROM task_assignees WHERE task_id = t.id) as assignees
+            FROM tasks t
+            JOIN users u ON t.user_id = u.id
+            WHERE t.completed = false 
+              AND t.reminder_time = to_char(CURRENT_TIMESTAMP AT TIME ZONE COALESCE(u.timezone, 'UTC'), 'HH24:MI')
+        `);
 
         for (let task of res.rows) {
             let shouldSend = false;
             const freq = task.reminder_frequency;
+            const dayOfWeek = parseInt(task.local_dow, 10); // 0 = Sun, 1 = Mon, ..., 6 = Sat
 
             if (freq === 'daily') {
                 shouldSend = true;
@@ -225,12 +261,73 @@ cron.schedule('* * * * *', async () => {
     }
 });
 
-app.get('/api/user', (req, res) => {
-    if (req.isAuthenticated()) res.json({ id: req.user.id, username: req.user.username });
-    else res.status(401).json({ error: 'Not logged in' });
+// Profile / Settings routes
+app.get('/api/settings/profile', ensureAuthenticatedOrApiKey, async (req, res) => {
+    try {
+        const result = await pool.query('SELECT timezone FROM users WHERE id = $1', [req.user.id]);
+        res.json(result.rows[0]);
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to fetch profile' });
+    }
 });
 
-app.get('/api/users', ensureAuthenticated, async (req, res) => {
+app.put('/api/settings/profile', ensureAuthenticatedOrApiKey, async (req, res) => {
+    const { timezone } = req.body;
+    try {
+        await pool.query('UPDATE users SET timezone = $1 WHERE id = $2', [timezone, req.user.id]);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to update profile' });
+    }
+});
+
+// API Key Management Routes
+app.post('/api/settings/keys', ensureAuthenticatedOrApiKey, async (req, res) => {
+    const { keyName } = req.body;
+    if (!keyName || !keyName.trim()) {
+        return res.status(400).json({ error: 'A descriptive key name is required.' });
+    }
+    try {
+        const cleartextKey = 'app_pp_' + crypto.randomBytes(24).toString('hex');
+        const secureHash = crypto.createHash('sha256').update(cleartextKey).digest('hex');
+        await pool.query(
+            'INSERT INTO user_api_keys (user_id, key_name, api_key_hash) VALUES ($1, $2, $3)',
+            [req.user.id, keyName.trim(), secureHash]
+        );
+        res.status(201).json({ key: cleartextKey });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Database failure during integration key generation.' });
+    }
+});
+
+app.get('/api/settings/keys', ensureAuthenticatedOrApiKey, async (req, res) => {
+    try {
+        const result = await pool.query(
+            'SELECT id, key_name, created_at FROM user_api_keys WHERE user_id = $1 ORDER BY created_at DESC',
+            [req.user.id]
+        );
+        res.json(result.rows);
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to pull credential indexes.' });
+    }
+});
+
+app.delete('/api/settings/keys/:id', ensureAuthenticatedOrApiKey, async (req, res) => {
+    try {
+        await pool.query('DELETE FROM user_api_keys WHERE id = $1 AND user_id = $2', [req.params.id, req.user.id]);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to revoke token execution clearance.' });
+    }
+});
+
+// Regular App Routes
+app.get('/api/user', ensureAuthenticatedOrApiKey, (req, res) => {
+    res.json({ id: req.user.id, username: req.user.username });
+});
+
+app.get('/api/users', ensureAuthenticatedOrApiKey, async (req, res) => {
     try {
         const result = await pool.query('SELECT id, username FROM users ORDER BY username ASC');
         res.json(result.rows);
@@ -239,7 +336,7 @@ app.get('/api/users', ensureAuthenticated, async (req, res) => {
     }
 });
 
-app.get('/api/tasks', ensureAuthenticated, async (req, res) => {
+app.get('/api/tasks', ensureAuthenticatedOrApiKey, async (req, res) => {
     try {
         const result = await pool.query(`
             SELECT t.*, 
@@ -262,7 +359,7 @@ app.get('/api/tasks', ensureAuthenticated, async (req, res) => {
     }
 });
 
-app.post('/api/tasks', ensureAuthenticated, async (req, res) => {
+app.post('/api/tasks', ensureAuthenticatedOrApiKey, async (req, res) => {
     const { title, dueDate } = req.body;
     try {
         const result = await pool.query(
@@ -276,7 +373,7 @@ app.post('/api/tasks', ensureAuthenticated, async (req, res) => {
     }
 });
 
-app.put('/api/tasks/:id', ensureAuthenticated, async (req, res) => {
+app.put('/api/tasks/:id', ensureAuthenticatedOrApiKey, async (req, res) => {
     const { title, description, completed, dueDate, predecessors, assignees, reminderTime, reminderFrequency } = req.body;
     const client = await pool.connect();
     try {
@@ -311,7 +408,7 @@ app.put('/api/tasks/:id', ensureAuthenticated, async (req, res) => {
         if (Array.isArray(assignees)) {
             await client.query('DELETE FROM task_assignees WHERE task_id = $1', [req.params.id]);
             for (let uid of assignees) {
-                await client.query('INSERT INTO task_assignees (task_id, user_id) VALUES ($1, $2)', [task.id, uid]);
+                await client.query('INSERT INTO task_assignees (task_id, user_id) VALUES ($1, $2)', [req.params.id, uid]);
                 
                 if (!oldAssignees.includes(uid) && uid !== req.user.id) {
                     const msg = `${req.user.username} shared a document/task with you: "${title}"`;
@@ -346,7 +443,7 @@ app.put('/api/tasks/:id', ensureAuthenticated, async (req, res) => {
     }
 });
 
-app.get('/api/notifications', ensureAuthenticated, async (req, res) => {
+app.get('/api/notifications', ensureAuthenticatedOrApiKey, async (req, res) => {
     try {
         const result = await pool.query('SELECT * FROM notifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT 30', [req.user.id]);
         res.json(result.rows);
@@ -355,7 +452,7 @@ app.get('/api/notifications', ensureAuthenticated, async (req, res) => {
     }
 });
 
-app.post('/api/notifications/:id/read', ensureAuthenticated, async (req, res) => {
+app.post('/api/notifications/:id/read', ensureAuthenticatedOrApiKey, async (req, res) => {
     try {
         await pool.query('UPDATE notifications SET is_read = true WHERE id = $1 AND user_id = $2', [req.params.id, req.user.id]);
         res.json({ success: true });
@@ -364,7 +461,7 @@ app.post('/api/notifications/:id/read', ensureAuthenticated, async (req, res) =>
     }
 });
 
-app.post('/api/notifications/read-all', ensureAuthenticated, async (req, res) => {
+app.post('/api/notifications/read-all', ensureAuthenticatedOrApiKey, async (req, res) => {
     try {
         await pool.query('UPDATE notifications SET is_read = true WHERE user_id = $1', [req.user.id]);
         res.json({ success: true });
@@ -373,11 +470,11 @@ app.post('/api/notifications/read-all', ensureAuthenticated, async (req, res) =>
     }
 });
 
-app.get('/api/push/key', ensureAuthenticated, (req, res) => {
+app.get('/api/push/key', ensureAuthenticatedOrApiKey, (req, res) => {
     res.json({ publicKey: vapidPublicKey });
 });
 
-app.post('/api/push/subscribe', ensureAuthenticated, async (req, res) => {
+app.post('/api/push/subscribe', ensureAuthenticatedOrApiKey, async (req, res) => {
     const { subscription } = req.body;
     try {
         const subStr = JSON.stringify(subscription);
