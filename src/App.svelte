@@ -98,7 +98,6 @@
         isRendering = false;
     }
 
-    // Handle Local File Uploads for Demo purposes
     function handlePdfUpload(e) {
         const file = e.target.files[0];
         if (file) {
@@ -116,7 +115,6 @@
         }
     }
 
-    // Render Preview
     function renderPreview() {
         const previewEl = document.getElementById('md-preview');
         if (!previewEl || !editingTask) return;
@@ -130,7 +128,7 @@
 <main>
     <div class="container {isStudyMode ? 'study-expanded' : ''}">
         <div class="header">
-            <h1>Manifest <span>- v25 Architecture</span></h1>
+            <h1>Manifest <span>- v26 Architecture</span></h1>
             {#if user} <button class="logout-btn" on:click={() => window.location.href='/auth/logout'}>Logout</button> {/if}
         </div>
 
@@ -164,11 +162,13 @@
 
             {:else if currentView === 'calendar'}
                 <div class="calendar">
-                    <!-- Restored Month & Week Headers -->
+                    <!-- FIXED: Proper month changing logic avoiding Svelte reactivity bugs -->
                     <div class="cal-controls">
-                        <button on:click={() => currentDate = new Date(currentYear, currentMonth - 1, 1)}>◀</button>
-                        <h3>{currentDate.toLocaleString('default', { month: 'long', year: 'numeric' })}</h3>
-                        <button on:click={() => currentDate = new Date(currentYear, currentMonth + 1, 1)}>▶</button>
+                        <button on:click={() => { currentDate = new Date(currentYear, currentMonth - 1, 1); }}>◀ Prev</button>
+                        <div class="cal-header-title">
+                            <h3>{currentDate.toLocaleString('default', { month: 'long', year: 'numeric' })}</h3>
+                        </div>
+                        <button on:click={() => { currentDate = new Date(currentYear, currentMonth + 1, 1); }}>Next ▶</button>
                     </div>
                     <div class="cal-grid">
                         {#each ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as day}<div class="cal-header-cell">{day}</div>{/each}
@@ -186,7 +186,6 @@
                 </div>
 
             {:else if currentView === 'gantt'}
-                <!-- Restored Gantt Placeholder -->
                 <div class="gantt-view">
                     <h2>Project Timeline</h2>
                     {#if activeTasks.length === 0} <p>No tasks to map.</p> {/if}
@@ -201,15 +200,15 @@
             {:else if currentView === 'settings'}
                 <div class="settings-card">
                     <h2>Account & Billing</h2>
-                    <p>Plan: <strong>{user.plan_type.toUpperCase()}</strong></p>
-                    {#if user.plan_type !== 'pro'}
+                    <!-- FIXED: Added safe null-checking fallback to prevent program crash if plan_type is missing -->
+                    <p>Plan: <strong>{user?.plan_type ? user.plan_type.toUpperCase() : 'FREE'}</strong></p>
+                    {#if user?.plan_type !== 'pro'}
                         <button class="btn primary" on:click={async () => { const res = await fetch('/api/checkout', {method:'POST'}); const d = await res.json(); if(d.url) window.location.href = d.url; }}>Upgrade to Pro Server Tier</button>
                     {/if}
                 </div>
             {/if}
         {/if}
 
-        <!-- TASK EDIT MODAL (Not fullscreen yet) -->
         {#if editingTask && !isStudyMode}
             <div class="modal-overlay">
                 <div class="modal">
@@ -229,7 +228,6 @@
             </div>
         {/if}
 
-        <!-- 📚 FULLSCREEN STUDY MODE (Inside the Task) -->
         {#if isStudyMode}
             <div class="study-workspace">
                 <div class="study-header">
@@ -238,7 +236,6 @@
                 </div>
 
                 <div class="split-layout">
-                    <!-- LEFT: PDF Viewer -->
                     <div class="pdf-panel">
                         <div class="panel-tools">
                             {#if !editingTask.pdf_url}
@@ -256,7 +253,6 @@
                         </div>
                     </div>
 
-                    <!-- RIGHT: Audio, Transcription & LaTeX Notes -->
                     <div class="transcript-panel">
                         <div class="audio-block">
                             {#if !editingTask.audio_url}
@@ -311,9 +307,13 @@
     .study-launch-banner p { margin-top: 0; font-size: 0.9rem; color: #a5b4fc; }
     .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
 
-    /* Calendar (Restored UI) */
+    /* Calendar */
     .cal-controls { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
-    .cal-controls button { background: #333; color: white; border: none; padding: 5px 10px; border-radius: 4px; }
+    .cal-controls button { background: #333; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; }
+    .cal-controls button:hover { background: #444; }
+    .cal-header-title { display: flex; flex-direction: column; align-items: center; }
+    .cal-header-title h3 { margin: 0; font-size: 1.2rem; }
+    
     .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
     .cal-header-cell { text-align: center; font-weight: bold; color: #888; padding-bottom: 10px; }
     .cal-cell { background: #1a1a1a; min-height: 80px; padding: 5px; border-radius: 4px; }
@@ -321,7 +321,7 @@
     .day-num { text-align: right; color: #666; font-size: 0.8rem; }
     .mini-task { background: #646cff; color: white; font-size: 0.7rem; padding: 2px 4px; border-radius: 2px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
 
-    /* Gantt (Restored Placeholder) */
+    /* Gantt */
     .gantt-view { background: #1a1a1a; padding: 20px; border-radius: 8px; }
     .gantt-row { display: flex; align-items: center; margin-bottom: 10px; border-bottom: 1px solid #222; padding-bottom: 10px; }
     .gantt-label { width: 150px; font-weight: bold; }
