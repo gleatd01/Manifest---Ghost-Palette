@@ -36,7 +36,13 @@
     $: activeTasks = tasks.filter(t => !t.completed);
     $: unreadCount = notifications.filter(n => !n.is_read).length;
 
-    $: calendarDays = Array.from({ length: 42 }, (_, i) => {
+    // DYNAMIC GRID CALCULATION
+    // Total cells = leading empty spaces (firstDayOfMonth) + number of days in the month
+    $: totalCellsNeeded = firstDayOfMonth + daysInMonth;
+    // Round up to nearest whole row of 7 days
+    $: totalRows = Math.ceil(totalCellsNeeded / 7);
+
+    $: calendarDays = Array.from({ length: totalRows * 7 }, (_, i) => {
         const dayNum = i - firstDayOfMonth + 1;
         if (dayNum > 0 && dayNum <= daysInMonth) {
             const dateObj = new Date(currentYear, currentMonth, dayNum, 12);
@@ -694,13 +700,13 @@
     .cal-controls { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; color: #fff; }
     .cal-controls button { background: #333; color: #fff; }
     .cal-controls h3 { margin: 0; font-size: 1.1rem; }
-    .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+    .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; align-content: start; grid-auto-rows: 1fr;}
     .cal-header-cell { text-align: center; color: #888; font-size: 0.8rem; font-weight: bold; padding-bottom: 5px; }
     
     .cal-cell { 
         background: #2a2a2a; border-radius: 4px; padding: 4px; 
         display: flex; flex-direction: column; gap: 2px;
-        min-height: 85px; overflow-y: auto; transition: background 0.2s;
+        aspect-ratio: 1 / 1; overflow-y: auto; transition: background 0.2s;
     }
     
     .cal-cell.empty { background: #1c1c1c; opacity: 0.6; border: none; }
@@ -722,8 +728,9 @@
         .container { padding: 15px 10px; border-radius: 8px;}
         .calendar { padding: 0; border: none; background: transparent; }
         
-        .cal-grid { gap: 2px; }
+        .cal-grid { gap: 2px; align-content: start; grid-auto-rows: 1fr;}
         .cal-cell { 
+            aspect-ratio: auto; 
             min-height: 65px; 
             padding: 2px; 
         }
