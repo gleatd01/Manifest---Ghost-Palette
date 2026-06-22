@@ -11,6 +11,7 @@
     let newTaskDate = '';
     
     let currentView = 'list';
+    let calendarMode = 'month'; // 'month' or 'week'
     let editingTask = null; 
     let selectedDep = null;
     let selectedAssignee = null;
@@ -36,30 +37,53 @@
     $: activeTasks = tasks.filter(t => !t.completed);
     $: unreadCount = notifications.filter(n => !n.is_read).length;
 
-    // DYNAMIC GRID CALCULATION
-    // Total cells = leading empty spaces (firstDayOfMonth) + number of days in the month
+    // Grid Calculation
     $: totalCellsNeeded = firstDayOfMonth + daysInMonth;
-    // Round up to nearest whole row of 7 days
     $: totalRows = Math.ceil(totalCellsNeeded / 7);
 
-    $: calendarDays = Array.from({ length: totalRows * 7 }, (_, i) => {
-        const dayNum = i - firstDayOfMonth + 1;
-        if (dayNum > 0 && dayNum <= daysInMonth) {
-            const dateObj = new Date(currentYear, currentMonth, dayNum, 12);
-            const dateStr = dateObj.toISOString().split('T')[0];
-            const dayTasks = activeTasks.filter(t => t.due_date && t.due_date.startsWith(dateStr));
-            
-            // Normalize today for accurate comparison ignoring specific hours
-            const now = new Date();
-            const todayNorm = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12);
-            
-            const isPast = dateObj < todayNorm;
-            const isToday = dateStr === todayNorm.toISOString().split('T')[0];
-            
-            return { dayNum, dateStr, tasks: dayTasks, isPast, isToday };
+    $: startOfWeek = new Date(currentYear, currentMonth, currentDate.getDate() - currentDate.getDay());
+    $: endOfWeek = new Date(startOfWeek.getFullYear(), startOfWeek.getMonth(), startOfWeek.getDate() + 6);
+
+    // Header string
+    $: calHeaderTitle = calendarMode === 'month' 
+        ? currentDate.toLocaleString('default', { month: 'long', year: 'numeric' })
+        : `${startOfWeek.toLocaleDateString('default', { month: 'short', day: 'numeric' })} - ${endOfWeek.toLocaleDateString('default', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+
+    $: calendarDays = Array.from({ length: calendarMode === 'week' ? 7 : totalRows * 7 }, (_, i) => {
+        let dateObj;
+        let dayNum;
+        
+        if (calendarMode === 'week') {
+            dateObj = new Date(startOfWeek.getFullYear(), startOfWeek.getMonth(), startOfWeek.getDate() + i, 12);
+            dayNum = dateObj.getDate();
+        } else {
+            dayNum = i - firstDayOfMonth + 1;
+            if (dayNum > 0 && dayNum <= daysInMonth) {
+                dateObj = new Date(currentYear, currentMonth, dayNum, 12);
+            } else {
+                return null; // out of month bounds
+            }
         }
-        return null;
+
+        const dateStr = dateObj.toISOString().split('T')[0];
+        const dayTasks = activeTasks.filter(t => t.due_date && t.due_date.startsWith(dateStr));
+        
+        const now = new Date();
+        const todayNorm = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12);
+        
+        const isPast = dateObj < todayNorm;
+        const isToday = dateStr === todayNorm.toISOString().split('T')[0];
+        
+        return { dayNum, dateStr, tasks: dayTasks, isPast, isToday };
     });
+
+    function changeTimeRange(offset) {
+        if (calendarMode === 'month') {
+            currentDate = new Date(currentYear, currentMonth + offset, 1);
+        } else {
+            currentDate = new Date(currentYear, currentMonth, currentDate.getDate() + (offset * 7));
+        }
+    }
 
     $: agendaTasks = [...activeTasks].sort((a, b) => {
         if (!a.due_date && !b.due_date) return 0;
@@ -336,7 +360,6 @@
         await loadNotifications();
     }
 
-    function changeMonth(offset) { currentDate = new Date(currentYear, currentMonth + offset, 1); }
     async function logout() { await fetch('/auth/logout', { method: 'POST' }); user = null; tasks = []; }
 </script>
 
@@ -434,9 +457,15 @@
             {:else if currentView === 'calendar'}
                 <div class="calendar">
                     <div class="cal-controls">
-                        <button on:click={() => changeMonth(-1)}>◀</button>
-                        <h3>{currentDate.toLocaleString('default', { month: 'long', year: 'numeric' })}</h3>
-                        <button on:click={() => changeMonth(1)}>▶</button>
+                        <button on:click={() => changeTimeRange(-1)}>◀</button>
+                        <div class="cal-header-center">
+                            <h3>{calHeaderTitle}</h3>
+                            <div class="cal-mode-toggle">
+                                <button class:active={calendarMode === 'month'} on:click={() => calendarMode = 'month'}>Month</button>
+                                <button class:active={calendarMode === 'week'} on:click={() => calendarMode = 'week'}>Week</button>
+                            </div>
+                        </div>
+                        <button on:click={() => changeTimeRange(1)}>▶</button>
                     </div>
                     <div class="cal-grid">
                         {#each ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as day} <div class="cal-header-cell">{day}</div> {/each}
@@ -699,8 +728,15 @@
     .calendar { background: #1a1a1a; padding: 15px; border-radius: 8px; border: 1px solid #333; }
     .cal-controls { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; color: #fff; }
     .cal-controls button { background: #333; color: #fff; }
-    .cal-controls h3 { margin: 0; font-size: 1.1rem; }
-    .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; align-content: start; grid-auto-rows: 1fr;}
+    
+    .cal-header-center { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+    .cal-header-center h3 { margin: 0; font-size: 1.1rem; }
+    .cal-mode-toggle { display: flex; background: #222; border-radius: 4px; overflow: hidden; border: 1px solid #444; }
+    .cal-mode-toggle button { background: transparent; color: #888; border: none; padding: 2px 8px; font-size: 0.7rem; cursor: pointer; border-radius: 0; }
+    .cal-mode-toggle button.active { background: #646cff; color: #fff; }
+    
+    /* Strict Uniform Grid layout */
+    .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); grid-auto-rows: 1fr; gap: 4px; align-content: start; }
     .cal-header-cell { text-align: center; color: #888; font-size: 0.8rem; font-weight: bold; padding-bottom: 5px; }
     
     .cal-cell { 
@@ -709,7 +745,8 @@
         aspect-ratio: 1 / 1; overflow-y: auto; transition: background 0.2s;
     }
     
-    .cal-cell.empty { background: #1c1c1c; opacity: 0.6; border: none; }
+    /* Transparent Placeholder cells outside month bounds */
+    .cal-cell.empty { background: transparent !important; border: none !important; box-shadow: none !important; opacity: 0; pointer-events: none; }
     
     /* Date Highlighting */
     .cal-cell.past-date { background: #1f1f1f; opacity: 0.5; }
