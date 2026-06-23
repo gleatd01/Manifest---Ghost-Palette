@@ -7,29 +7,34 @@
 
     let user = null;
     let tasks = [];
-    
-    // Core v20 Nav Tabs + Agenda and Gantt
-    let currentView = 'list'; // 'list', 'calendar', 'agenda', 'gantt', 'settings'
+    let currentView = 'list';
     let editingTask = null;
-    
-    // Study Mode Variables (Task-Level)
     let isStudyMode = false;
+    
+    // PDF Viewer State
     let canvasRef;
     let pdfDoc = null;
     let pageNum = 1;
     let isRendering = false;
 
-    // Calendar UI State (Restored Month / Week Toggle)
-    let calendarMode = 'month'; // 'month' or 'week'
-    let currentDate = new Date();
+    // Study Mode Media Variables
+    let mediaRecorder = null;
+    let audioChunks = [];
+    let isRecording = false;
+    let recognition = null;
+    let recordingStartTime = 0;
     
-    // Reactive Calendar Month Calculations
+    // Slide Tracking Timeline
+    let slideTimeline = []; 
+    let activePlaybackPage = 1;
+
+    // Calendar UI
+    let calendarMode = 'month';
+    let currentDate = new Date();
     $: currentMonth = currentDate.getMonth();
     $: currentYear = currentDate.getFullYear();
     $: daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
     $: firstDayOfMonth = new Date(currentYear, currentMonth, 1).getDay();
-    
-    // Reactive Calendar Week Calculations
     $: currentWeekStart = new Date(currentYear, currentMonth, currentDate.getDate() - currentDate.getDay());
     $: weekDays = Array.from({ length: 7 }, (_, i) => {
         const d = new Date(currentWeekStart.getFullYear(), currentWeekStart.getMonth(), currentWeekStart.getDate() + i, 12);
@@ -39,8 +44,6 @@
     });
 
     $: activeTasks = tasks.filter(t => !t.completed);
-
-    // Reactive Agenda Sorting
     $: agendaTasks = [...activeTasks].sort((a, b) => {
         if (!a.due_date && !b.due_date) return 0;
         if (!a.due_date) return 1;
@@ -48,7 +51,6 @@
         return new Date(a.due_date) - new Date(b.due_date);
     });
 
-    // Settings & API Keys (Restored)
     let apiKeys = [];
     let newKeyName = '';
     let generatedCleartextKey = '';
@@ -62,31 +64,40 @@
             await loadTasks();
             const socket = io();
             socket.on('workspace-update', async () => await loadTasks());
+            initSpeechRecognition();
         }
     });
 
     async function checkUser() { const res = await fetch('/api/user'); if (res.ok) user = await res.json(); }
     async function loadTasks() { const res = await fetch('/api/tasks'); if (res.ok) tasks = await res.json(); }
 
-    // API Key Logic
+    function initSpeechRecognition() {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (SpeechRecognition) {
+            recognition = new SpeechRecognition();
+            recognition.continuous = true;
+            recognition.interimResults = true;
+            recognition.onresult = (event) => {
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                    if (event.results[i].isFinal) {
+                        editingTask.transcription = (editingTask.transcription || '') + event.results[i][0].transcript + ' ';
+                        saveEdit(); // Auto-save transcription blocks
+                    }
+                }
+            };
+        } else {
+            console.warn("Web Speech API not supported in this browser.");
+        }
+    }
+
     async function fetchApiKeys() {
         const res = await fetch('/api/settings/keys');
         if (res.ok) apiKeys = await res.json();
     }
     async function generateKey() {
         if (!newKeyName.trim()) return;
-        const res = await fetch('/api/settings/keys', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ keyName: newKeyName })
-        });
-        if (res.ok) {
-            const data = await res.json();
-            generatedCleartextKey = data.key;
-            showKeyModal = true;
-            newKeyName = '';
-            fetchApiKeys();
-        }
+        const res = await fetch('/api/settings/keys', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keyName: newKeyName }) });
+        if (res.ok) { const data = await res.json(); generatedCleartextKey = data.key; showKeyModal = true; newKeyName = ''; fetchApiKeys(); }
     }
     async function revokeKey(id) {
         if (!confirm("Wipe this system token?")) return;
@@ -94,7 +105,6 @@
         if (res.ok) fetchApiKeys();
     }
 
-    // Task Logic
     let newTaskTitle = '';
     async function addTask() {
         if (!newTaskTitle.trim()) return;
@@ -123,23 +133,26 @@
     }
 
     function closeEdit() {
+        if(isRecording) stopRecording();
         editingTask = null;
         isStudyMode = false;
         pdfDoc = null;
     }
 
-    // Calendar Navigation
     function changeDate(dir) {
-        if (calendarMode === 'month') {
-            currentDate = new Date(currentYear, currentMonth + dir, 1);
-        } else {
-            currentDate = new Date(currentYear, currentMonth, currentDate.getDate() + (dir * 7));
-        }
+        if (calendarMode === 'month') currentDate = new Date(currentYear, currentMonth + dir, 1);
+        else currentDate = new Date(currentYear, currentMonth, currentDate.getDate() + (dir * 7));
     }
 
-    // --- Study Mode Logic ---
+    // --- Study Mode Logic & Recording ---
     function openStudyMode() {
         isStudyMode = true;
+        if (editingTask.slide_tracking) {
+            slideTimeline = JSON.parse(editingTask.slide_tracking);
+        } else {
+            slideTimeline = [];
+        }
+        
         if (editingTask.pdf_url) {
             setTimeout(() => loadPdf(editingTask.pdf_url), 100);
         }
@@ -155,28 +168,101 @@
     async function renderPage(num) {
         isRendering = true;
         pageNum = num;
+        activePlaybackPage = num;
         const page = await pdfDoc.getPage(num);
         const viewport = page.getViewport({ scale: 1.5 });
         canvasRef.height = viewport.height;
         canvasRef.width = viewport.width;
         await page.render({ canvasContext: canvasRef.getContext('2d'), viewport: viewport }).promise;
         isRendering = false;
+
+        // Log slide change if actively recording
+        if (isRecording) {
+            const timeElapsed = Math.floor((Date.now() - recordingStartTime) / 1000);
+            slideTimeline.push({ time: timeElapsed, page: num });
+            editingTask.slide_tracking = JSON.stringify(slideTimeline);
+        }
+    }
+
+    // Google Drive Upload Logic
+    async function uploadFileToDrive(file, type) {
+        const formData = new FormData();
+        formData.append('file', file, file.name || `recording_${Date.now()}.webm`);
+        
+        const tempUrl = URL.createObjectURL(file);
+        if (type === 'pdf') {
+            editingTask.pdf_url = tempUrl;
+            loadPdf(tempUrl);
+        } else if (type === 'audio') {
+            editingTask.audio_url = tempUrl;
+        }
+
+        try {
+            const res = await fetch('/api/drive/upload', { method: 'POST', body: formData });
+            const data = await res.json();
+            if (data.fileId) {
+                if (type === 'pdf') editingTask.drive_pdf_id = data.fileId;
+                if (type === 'audio') editingTask.drive_audio_id = data.fileId;
+                saveEdit();
+            }
+        } catch (e) { console.error("Drive upload failed", e); }
     }
 
     function handlePdfUpload(e) {
         const file = e.target.files[0];
-        if (file) {
-            editingTask.pdf_url = URL.createObjectURL(file);
-            saveEdit();
-            loadPdf(editingTask.pdf_url);
+        if (file) uploadFileToDrive(file, 'pdf');
+    }
+
+    async function startRecording() {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorder = new MediaRecorder(stream);
+            audioChunks = [];
+            
+            mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
+            mediaRecorder.onstop = async () => {
+                const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                uploadFileToDrive(audioBlob, 'audio');
+            };
+
+            recordingStartTime = Date.now();
+            slideTimeline = [{ time: 0, page: pageNum }];
+            mediaRecorder.start();
+            isRecording = true;
+            
+            if (recognition) {
+                if (!editingTask.transcription) editingTask.transcription = '';
+                editingTask.transcription += '\n--- Recording Started ---\n';
+                recognition.start();
+            }
+        } catch (err) {
+            console.error("Microphone access denied or failed", err);
+            alert("Could not start recording. Please check microphone permissions.");
         }
     }
 
-    function handleAudioUpload(e) {
-        const file = e.target.files[0];
-        if (file) {
-            editingTask.audio_url = URL.createObjectURL(file);
+    function stopRecording() {
+        if (mediaRecorder && isRecording) {
+            mediaRecorder.stop();
+            isRecording = false;
+            editingTask.slide_tracking = JSON.stringify(slideTimeline);
             saveEdit();
+            if (recognition) recognition.stop();
+        }
+    }
+
+    function handleAudioTimeUpdate(e) {
+        const currentTime = e.target.currentTime;
+        if (slideTimeline.length > 0 && !isRecording && !isRendering) {
+            let targetedPage = slideTimeline[0].page;
+            for (let point of slideTimeline) {
+                if (currentTime >= point.time) {
+                    targetedPage = point.page;
+                }
+            }
+            if (activePlaybackPage !== targetedPage) {
+                renderPage(targetedPage);
+            }
         }
     }
 
@@ -193,7 +279,7 @@
 <main>
     <div class="container {isStudyMode ? 'study-expanded' : ''}">
         <div class="header">
-            <h1>Manifest <span>- v27 Final UI Restoration</span></h1>
+            <h1>Manifest <span>- v28.1 Folder Sync</span></h1>
             {#if user} <button class="logout-btn" on:click={() => window.location.href='/auth/logout'}>Logout</button> {/if}
         </div>
 
@@ -208,7 +294,10 @@
         {/if}
 
         {#if !user}
-            <div class="login-box"><a href="/auth/google" class="btn google-btn">Login with Google</a></div>
+            <div class="login-box">
+                <p>Welcome! V28.1 requires Google Drive access to save your audio recordings and PDFs securely into the Manifest Ghost folder.</p>
+                <a href="/auth/google" class="btn google-btn">Login with Google</a>
+            </div>
         {:else if !isStudyMode && !editingTask}
             
             {#if currentView === 'list'}
@@ -228,7 +317,6 @@
 
             {:else if currentView === 'calendar'}
                 <div class="calendar">
-                    <!-- RESTORED: Month / Week View Toggles & Header -->
                     <div class="cal-controls">
                         <div class="cal-view-toggles">
                             <button class:active={calendarMode==='month'} on:click={() => calendarMode='month'}>Month</button>
@@ -264,7 +352,6 @@
                             {/each}
                         </div>
                     {:else}
-                        <!-- Week View Grid -->
                         <div class="cal-grid week-grid">
                             {#each weekDays as wd}
                                 <div class="cal-cell">
@@ -280,12 +367,9 @@
                 </div>
 
             {:else if currentView === 'agenda'}
-                <!-- RESTORED: Agenda View -->
                 <div class="agenda-view">
                     <h2>Agenda Timeline</h2>
-                    {#if agendaTasks.length === 0}
-                        <p class="empty" style="color:#666; font-style:italic;">No tasks on the agenda.</p>
-                    {/if}
+                    {#if agendaTasks.length === 0} <p class="empty" style="color:#666; font-style:italic;">No tasks on the agenda.</p> {/if}
                     {#each agendaTasks as task}
                         <!-- svelte-ignore a11y-click-events-have-key-events -->
                         <div class="agenda-item {task.completed ? 'completed' : ''}" on:click={() => openEdit(task)}>
@@ -297,9 +381,7 @@
                                     <span class="no-date">Anytime</span>
                                 {/if}
                             </div>
-                            <div class="agenda-content">
-                                <span class="task-title">{task.title}</span>
-                            </div>
+                            <div class="agenda-content"> <span class="task-title">{task.title}</span> </div>
                         </div>
                     {/each}
                 </div>
@@ -325,10 +407,8 @@
                     {/if}
                 </div>
 
-                <!-- RESTORED: API Key Power Automate Section -->
                 <div class="settings-card" style="margin-top: 20px;">
                     <h2>API Integrations (Power Automate)</h2>
-                    <p style="font-size: 0.9rem; color: #888;">Generate keys for stateless system access.</p>
                     <div class="task-input">
                         <input type="text" bind:value={newKeyName} placeholder="Key description..." style="padding:10px; background:#111; border:1px solid #333; color:white; border-radius:4px; flex:1;" />
                         <button class="btn primary" on:click={generateKey}>Generate</button>
@@ -370,7 +450,6 @@
             <div class="modal-overlay" style="z-index: 200;">
                 <div class="modal" style="border-color: #f59e0b;">
                     <h2 style="color: #f59e0b;">Secret Key Generated</h2>
-                    <p style="font-size:0.9rem; color:#ccc;">Copy this key now. It will never be shown again.</p>
                     <div style="background:#000; padding:15px; color:#10b981; font-family:monospace; word-break:break-all; border-radius:4px; margin: 15px 0;">{generatedCleartextKey}</div>
                     <button class="btn primary full-width" on:click={() => {showKeyModal = false; generatedCleartextKey = '';}}>I Have Copied The Key</button>
                 </div>
@@ -388,12 +467,15 @@
                     <div class="pdf-panel">
                         <div class="panel-tools">
                             {#if !editingTask.pdf_url}
-                                <label>Upload PDF: <input type="file" accept="application/pdf" on:change={handlePdfUpload} /></label>
+                                <label class="upload-btn">
+                                    Upload PDF to Drive
+                                    <input type="file" accept="application/pdf" style="display:none;" on:change={handlePdfUpload} />
+                                </label>
                             {:else}
                                 <div class="pdf-nav">
-                                    <button on:click={() => renderPage(pageNum-1)} disabled={pageNum<=1}>Prev</button>
-                                    <span>Page {pageNum}</span>
-                                    <button on:click={() => renderPage(pageNum+1)} disabled={!pdfDoc || pageNum >= pdfDoc.numPages}>Next</button>
+                                    <button on:click={() => renderPage(pageNum-1)} disabled={pageNum<=1}>Prev Slide</button>
+                                    <span style="font-weight: bold; color: #a5b4fc;">Slide {pageNum}</span>
+                                    <button on:click={() => renderPage(pageNum+1)} disabled={!pdfDoc || pageNum >= pdfDoc.numPages}>Next Slide</button>
                                 </div>
                             {/if}
                         </div>
@@ -404,16 +486,23 @@
 
                     <div class="transcript-panel">
                         <div class="audio-block">
-                            {#if !editingTask.audio_url}
-                                <label>Upload Lecture Audio: <input type="file" accept="audio/*" on:change={handleAudioUpload} /></label>
-                            {:else}
-                                <audio controls class="audio-player" src={editingTask.audio_url}></audio>
+                            <div class="recording-controls">
+                                {#if !isRecording}
+                                    <button class="btn action-btn record-btn" on:click={startRecording}>🔴 Record Live Audio & Transcribe</button>
+                                {:else}
+                                    <button class="btn action-btn stop-btn" on:click={stopRecording}>⏹ Stop Recording (Saves to Drive)</button>
+                                    <span class="recording-pulse">Recording...</span>
+                                {/if}
+                            </div>
+                            
+                            {#if editingTask.audio_url}
+                                <audio controls class="audio-player" src={editingTask.audio_url} on:timeupdate={handleAudioTimeUpdate}></audio>
                             {/if}
                         </div>
                         
                         <div class="notes-block">
-                            <p class="section-label">Audio Transcription</p>
-                            <textarea bind:value={editingTask.transcription} on:input={saveEdit} placeholder="Transcription text goes here..."></textarea>
+                            <p class="section-label">Live Transcription</p>
+                            <textarea class="transcription-box" bind:value={editingTask.transcription} on:input={saveEdit} placeholder="Your live speech will appear here..."></textarea>
                             
                             <p class="section-label">LaTeX / Markdown Notes</p>
                             <textarea bind:value={editingTask.description} on:input={() => { saveEdit(); renderPreview(); }} placeholder="Type your notes here..."></textarea>
@@ -442,30 +531,27 @@
     .btn.secondary { background: #333; color: white; }
     .full-width { width: 100%; box-sizing: border-box; }
     
+    .login-box { text-align: center; padding: 40px; background: #1a1a1a; border: 1px solid #333; border-radius: 8px; }
+    .google-btn { display: inline-block; background: #4285f4; color: white; text-decoration: none; padding: 10px 20px; border-radius: 4px; font-weight: 500; margin-top: 15px; }
+
     .task-input { display: flex; gap: 10px; margin-bottom: 20px; }
     .task-input input { flex: 1; padding: 10px; background: #1a1a1a; border: 1px solid #333; color: white; border-radius: 4px; }
     .add-btn { background: #646cff; color: white; border: none; padding: 0 20px; font-size: 1.5rem; border-radius: 4px; }
     .task-list { list-style: none; padding: 0; margin: 0; }
     .task-item { display: flex; align-items: center; gap: 15px; background: #1a1a1a; padding: 15px; margin-bottom: 10px; border-radius: 6px; border: 1px solid #222; cursor: pointer; }
 
-    /* Modal */
     .modal-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 100; }
     .modal { background: #1a1a1a; padding: 25px; border-radius: 8px; width: 400px; border: 1px solid #333; }
-    .modal h2 { margin-top: 0; }
     .study-launch-banner { background: #1f1f3a; padding: 15px; border-radius: 6px; margin: 20px 0; border: 1px solid #2a2a5a; text-align: center; }
-    .study-launch-banner p { margin-top: 0; font-size: 0.9rem; color: #a5b4fc; }
     .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
 
     /* Calendar */
     .cal-controls { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
-    .cal-view-toggles { display: flex; gap: 5px; }
     .cal-view-toggles button { background: #111; color: #888; border: 1px solid #333; padding: 5px 15px; border-radius: 4px; cursor: pointer;}
     .cal-view-toggles button.active { background: #646cff; color: white; border-color: #646cff; }
     .cal-nav { display: flex; align-items: center; gap: 15px; }
     .cal-nav button { background: #333; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; }
-    .cal-nav button:hover { background: #444; }
     .cal-header-title { min-width: 180px; text-align: center; }
-    .cal-header-title h3 { margin: 0; font-size: 1.1rem; }
     
     .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
     .cal-header-cell { text-align: center; font-weight: bold; color: #888; padding-bottom: 10px; }
@@ -475,26 +561,17 @@
     .day-header { text-align: center; font-weight: bold; color: #888; font-size: 0.85rem; padding-bottom: 5px; border-bottom: 1px solid #333; margin-bottom: 5px; }
     .mini-task { background: #646cff; color: white; font-size: 0.7rem; padding: 3px 5px; border-radius: 2px; margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
 
-    /* Agenda View */
+    /* Agenda & Gantt */
     .agenda-view { background: #1a1a1a; padding: 20px; border-radius: 8px; }
-    .agenda-view h2 { margin-top: 0; font-size: 1.3rem; margin-bottom: 15px;}
-    .agenda-item { display: flex; align-items: center; background: #111; border: 1px solid #222; padding: 12px; margin-bottom: 10px; border-radius: 6px; cursor: pointer; border-left: 4px solid #646cff; }
-    .agenda-item.completed { opacity: 0.6; border-left-color: #555; }
+    .agenda-item { display: flex; align-items: center; background: #111; border: 1px solid #222; padding: 12px; margin-bottom: 10px; border-radius: 6px; border-left: 4px solid #646cff; }
     .agenda-date { min-width: 80px; display: flex; flex-direction: column; align-items: center; padding-right: 15px; border-right: 1px solid #333; margin-right: 15px; }
-    .agenda-date .day { font-size: 0.75rem; color: #888; text-transform: uppercase; font-weight: bold;}
     .agenda-date .date { font-size: 1.1rem; font-weight: bold; color: #eee; }
-    .agenda-date .no-date { font-size: 0.8rem; color: #666; font-style: italic; }
-    .agenda-content { display: flex; flex-direction: column; }
-    
-    /* Gantt */
     .gantt-view { background: #1a1a1a; padding: 20px; border-radius: 8px; }
     .gantt-row { display: flex; align-items: center; margin-bottom: 10px; border-bottom: 1px solid #222; padding-bottom: 10px; }
     .gantt-label { width: 150px; font-weight: bold; }
     .gantt-bar { height: 20px; background: #646cff; border-radius: 10px; width: 60%; }
 
-    /* Settings */
     .settings-card { background: #1a1a1a; padding: 20px; border-radius: 8px; border: 1px solid #222; }
-    .settings-card h2 { margin-top:0; font-size: 1.2rem;}
 
     /* STUDY MODE FULLSCREEN */
     .study-workspace { display: flex; flex-direction: column; flex: 1; min-height: 0; }
@@ -503,17 +580,26 @@
     .split-layout { display: flex; gap: 20px; flex: 1; min-height: 0; }
     
     .pdf-panel { flex: 3; background: #080808; display: flex; flex-direction: column; border-radius: 8px; border: 1px solid #333; overflow: hidden; }
-    .panel-tools { padding: 10px; background: #1a1a1a; border-bottom: 1px solid #333; }
+    .panel-tools { padding: 15px; background: #161616; border-bottom: 1px solid #333; display: flex; justify-content: center;}
+    .pdf-nav { display: flex; align-items: center; gap: 15px; }
+    .pdf-nav button { background: #2a2a3a; color: white; border: 1px solid #4a4a6a; padding: 6px 15px; border-radius: 4px; font-weight: bold; cursor: pointer; }
     .canvas-container { flex: 1; overflow: auto; display: flex; justify-content: center; padding: 20px; }
-    canvas { background: white; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
-    .pdf-nav button { background: #333; color: white; border: none; padding: 4px 10px; border-radius: 4px; }
+    canvas { background: white; box-shadow: 0 4px 15px rgba(0,0,0,0.5); border-radius: 4px;}
 
     .transcript-panel { flex: 2; display: flex; flex-direction: column; gap: 15px; min-height: 0; }
-    .audio-block { background: #1a1a1a; padding: 15px; border-radius: 8px; border: 1px solid #333; }
-    .audio-player { width: 100%; }
+    .audio-block { background: #161616; padding: 15px; border-radius: 8px; border: 1px solid #333; }
+    .recording-controls { display: flex; align-items: center; gap: 15px; margin-bottom: 10px; }
+    .action-btn { padding: 10px 20px; border-radius: 6px; font-weight: bold; cursor: pointer; border: none; width: 100%;}
+    .record-btn { background: #e11d48; color: white; }
+    .stop-btn { background: #475569; color: white; }
+    .recording-pulse { color: #f43f5e; font-weight: bold; animation: pulse 1.5s infinite; }
+    @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+    .audio-player { width: 100%; border-radius: 4px;}
     
-    .notes-block { flex: 1; background: #1a1a1a; padding: 15px; border-radius: 8px; border: 1px solid #333; display: flex; flex-direction: column; overflow-y: auto; }
-    .section-label { font-weight: bold; color: #888; margin: 0 0 5px 0; font-size: 0.85rem; text-transform: uppercase; }
-    .notes-block textarea { background: #111; color: white; border: 1px solid #333; padding: 10px; border-radius: 4px; font-family: inherit; margin-bottom: 15px; resize: vertical; min-height: 100px; }
-    .markdown-body { padding: 10px; background: #111; border-radius: 4px; min-height: 100px; border: 1px solid #333;}
+    .notes-block { flex: 1; background: #161616; padding: 15px; border-radius: 8px; border: 1px solid #333; display: flex; flex-direction: column; overflow-y: auto; }
+    .section-label { font-weight: bold; color: #a5b4fc; margin: 0 0 8px 0; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px;}
+    .transcription-box { background: #0f172a; border: 1px solid #1e293b; color: #94a3b8; padding: 15px; border-radius: 6px; min-height: 120px; margin-bottom: 20px; line-height: 1.5; font-family: inherit;}
+    .notes-block textarea { background: #111; color: white; border: 1px solid #333; padding: 15px; border-radius: 6px; font-family: inherit; margin-bottom: 15px; resize: vertical; min-height: 120px; line-height: 1.5;}
+    .markdown-body { padding: 15px; background: #111; border-radius: 6px; min-height: 100px; border: 1px solid #333;}
+    .upload-btn { background: #646cff; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: bold; color: white;}
 </style>
