@@ -46,6 +46,7 @@ async function initDB() {
         await pool.query(`CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, username VARCHAR(100) UNIQUE, google_id VARCHAR(255) UNIQUE, plan_type VARCHAR(50) DEFAULT 'free', stripe_customer_id VARCHAR(255));`);
         try { await pool.query(`ALTER TABLE users ADD COLUMN google_access_token TEXT`); } catch (e) {}
         try { await pool.query(`ALTER TABLE users ADD COLUMN google_refresh_token TEXT`); } catch (e) {}
+        try { await pool.query(`ALTER TABLE users ADD COLUMN timezone VARCHAR(100) DEFAULT 'UTC'`); } catch (e) {}
 
         await pool.query(`CREATE TABLE IF NOT EXISTS tasks (id SERIAL PRIMARY KEY, user_id INTEGER REFERENCES users(id), title VARCHAR(255) NOT NULL, completed BOOLEAN DEFAULT false, due_date DATE, description TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`);
         
@@ -112,6 +113,16 @@ async function ensureAuthenticatedOrApiKey(req, res, next) {
 
 app.get('/api/user', (req, res) => res.json(req.user || null));
 
+// v30: Timezone automatic background sync endpoint
+app.put('/api/user/timezone', ensureAuthenticatedOrApiKey, async (req, res) => {
+    const { timezone } = req.body;
+    if (!timezone) return res.status(400).json({ error: "Timezone required" });
+    try {
+        await pool.query('UPDATE users SET timezone = $1 WHERE id = $2', [timezone, req.user.id]);
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: 'Failed to update timezone' }); }
+});
+
 app.post('/api/settings/keys', ensureAuthenticatedOrApiKey, async (req, res) => {
     const { keyName } = req.body;
     try {
@@ -151,9 +162,6 @@ app.put('/api/tasks/:id', ensureAuthenticatedOrApiKey, async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
-// ==========================================
-// GOOGLE DRIVE PROXY ENDPOINTS (v28.1 - FOLDER LOGIC)
-// ==========================================
 app.post('/api/drive/upload', ensureAuthenticatedOrApiKey, upload.single('file'), async (req, res) => {
     if (!req.user.google_access_token) return res.status(403).json({ error: 'Google Auth missing.' });
     
@@ -165,7 +173,6 @@ app.post('/api/drive/upload', ensureAuthenticatedOrApiKey, upload.single('file')
         const folderName = 'manifest-ghost';
         let folderId = null;
 
-        // 1. Search if 'manifest-ghost' folder already exists
         const queryResponse = await drive.files.list({
             q: `mimeType='application/vnd.google-apps.folder' and name='${folderName}' and trashed=false`,
             fields: 'files(id, name)',
@@ -175,22 +182,14 @@ app.post('/api/drive/upload', ensureAuthenticatedOrApiKey, upload.single('file')
         if (queryResponse.data.files && queryResponse.data.files.length > 0) {
             folderId = queryResponse.data.files[0].id;
         } else {
-            // 2. If it doesn't exist, create it
-            const folderMetadata = {
-                name: folderName,
-                mimeType: 'application/vnd.google-apps.folder'
-            };
-            const folder = await drive.files.create({
-                resource: folderMetadata,
-                fields: 'id'
-            });
+            const folderMetadata = { name: folderName, mimeType: 'application/vnd.google-apps.folder' };
+            const folder = await drive.files.create({ resource: folderMetadata, fields: 'id' });
             folderId = folder.data.id;
         }
         
         const bufferStream = new stream.PassThrough();
         bufferStream.end(req.file.buffer);
 
-        // 3. Upload the file into the specific folderId instead of 'root'
         const response = await drive.files.create({
             requestBody: { name: req.file.originalname, parents: [folderId] }, 
             media: { mimeType: req.file.mimetype, body: bufferStream },
@@ -217,6 +216,14 @@ app.post('/api/checkout', ensureAuthenticatedOrApiKey, async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
+app.post('/api/push/subscribe', ensureAuthenticatedOrApiKey, (req, res) => {
+    const { subscription, timezone } = req.body;
+    if (timezone) {
+        pool.query(`UPDATE users SET timezone = $1 WHERE id = $2`, [timezone, req.user.id]).catch(console.error);
+    }
+    res.status(200).json({ success: true, message: "Push and Timezone configured" });
+});
+
 app.use(express.static(path.join(__dirname, 'dist')));
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'dist', 'index.html')));
-server.listen(PORT, () => console.log(`[v28.1 Backend] Booted with Drive Subfolder Targeting. Port: ${PORT}`));
+server.listen(PORT, () => console.log(`[v30 Minimalist] Server Running. Port: ${PORT}`));

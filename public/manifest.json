@@ -3,8 +3,11 @@
   "name": "Manifest - Collaborative Math Workspace",
   "description": "Stateless secure Markdown/LaTeX document tracking matrix.",
   "icons": [
-    {"src": "icon-192.png", "type": "image/png", "sizes": "192x192"},
-    {"src": "icon-512.png", "type": "image/png", "sizes": "512x512"}
+    {
+      "src": "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' rx='100' fill='%23222'/><text x='50%25' y='50%25' font-family='sans-serif' font-weight='bold' font-size='280' fill='%23646cff' text-anchor='middle' dominant-baseline='middle'>M</text></svg>",
+      "type": "image/svg+xml",
+      "sizes": "512x512"
+    }
   ],
   "start_url": "/",
   "background_color": "#0d0d0d",

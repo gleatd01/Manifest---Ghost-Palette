@@ -1,6 +1,6 @@
 {
   "name": "manifest-ghost-palette",
-  "version": "28.1.0",
+  "version": "30.0.0",
   "private": true,
   "type": "module",
   "scripts": {

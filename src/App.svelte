@@ -10,25 +10,22 @@
     let currentView = 'list';
     let editingTask = null;
     let isStudyMode = false;
+    let isHeaderCollapsed = false;
     
-    // PDF Viewer State
     let canvasRef;
     let pdfDoc = null;
     let pageNum = 1;
     let isRendering = false;
 
-    // Study Mode Media Variables
     let mediaRecorder = null;
     let audioChunks = [];
     let isRecording = false;
     let recognition = null;
     let recordingStartTime = 0;
     
-    // Slide Tracking Timeline
     let slideTimeline = []; 
     let activePlaybackPage = 1;
 
-    // Calendar UI
     let calendarMode = 'month';
     let currentDate = new Date();
     $: currentMonth = currentDate.getMonth();
@@ -68,7 +65,21 @@
         }
     });
 
-    async function checkUser() { const res = await fetch('/api/user'); if (res.ok) user = await res.json(); }
+    async function checkUser() { 
+        const res = await fetch('/api/user'); 
+        if (res.ok) {
+            user = await res.json(); 
+            try {
+                const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+                fetch('/api/user/timezone', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ timezone: tz })
+                }).catch(e => console.log("Timezone sync backgrounded"));
+            } catch(e){}
+        }
+    }
+    
     async function loadTasks() { const res = await fetch('/api/tasks'); if (res.ok) tasks = await res.json(); }
 
     function initSpeechRecognition() {
@@ -81,12 +92,10 @@
                 for (let i = event.resultIndex; i < event.results.length; ++i) {
                     if (event.results[i].isFinal) {
                         editingTask.transcription = (editingTask.transcription || '') + event.results[i][0].transcript + ' ';
-                        saveEdit(); // Auto-save transcription blocks
+                        saveEdit();
                     }
                 }
             };
-        } else {
-            console.warn("Web Speech API not supported in this browser.");
         }
     }
 
@@ -121,6 +130,7 @@
     function openEdit(task) {
         editingTask = { ...task };
         isStudyMode = false;
+        isHeaderCollapsed = false;
     }
 
     async function saveEdit() {
@@ -137,6 +147,7 @@
         editingTask = null;
         isStudyMode = false;
         pdfDoc = null;
+        isHeaderCollapsed = false;
     }
 
     function changeDate(dir) {
@@ -144,9 +155,9 @@
         else currentDate = new Date(currentYear, currentMonth, currentDate.getDate() + (dir * 7));
     }
 
-    // --- Study Mode Logic & Recording ---
     function openStudyMode() {
         isStudyMode = true;
+        isHeaderCollapsed = true;
         if (editingTask.slide_tracking) {
             slideTimeline = JSON.parse(editingTask.slide_tracking);
         } else {
@@ -176,7 +187,6 @@
         await page.render({ canvasContext: canvasRef.getContext('2d'), viewport: viewport }).promise;
         isRendering = false;
 
-        // Log slide change if actively recording
         if (isRecording) {
             const timeElapsed = Math.floor((Date.now() - recordingStartTime) / 1000);
             slideTimeline.push({ time: timeElapsed, page: num });
@@ -184,7 +194,6 @@
         }
     }
 
-    // Google Drive Upload Logic
     async function uploadFileToDrive(file, type) {
         const formData = new FormData();
         formData.append('file', file, file.name || `recording_${Date.now()}.webm`);
@@ -278,9 +287,20 @@
 
 <main>
     <div class="container {isStudyMode ? 'study-expanded' : ''}">
-        <div class="header">
-            <h1>Manifest <span>- v28.1 Folder Sync</span></h1>
-            {#if user} <button class="logout-btn" on:click={() => window.location.href='/auth/logout'}>Logout</button> {/if}
+        <div class="header {isHeaderCollapsed ? 'collapsed' : ''}">
+            <div class="header-title-area">
+                <h1>Manifest {#if !isHeaderCollapsed}<span>- v30 Studio</span>{/if}</h1>
+            </div>
+            {#if user} 
+                <div class="header-actions">
+                    <button class="btn secondary small-btn" style="padding: 4px 8px; font-size: 0.75rem;" on:click={() => isHeaderCollapsed = !isHeaderCollapsed} title="Toggle Header">
+                        {isHeaderCollapsed ? '⛶ Expand' : '🗕 Collapse'}
+                    </button>
+                    {#if !isHeaderCollapsed}
+                        <button class="logout-btn" on:click={() => window.location.href='/auth/logout'}>Logout</button>
+                    {/if}
+                </div>
+            {/if}
         </div>
 
         {#if user && !isStudyMode}
@@ -295,7 +315,7 @@
 
         {#if !user}
             <div class="login-box">
-                <p>Welcome! V28.1 requires Google Drive access to save your audio recordings and PDFs securely into the Manifest Ghost folder.</p>
+                <p>Welcome! V30 requires Google Drive access to save your audio recordings and PDFs securely into the Manifest Ghost folder.</p>
                 <a href="/auth/google" class="btn google-btn">Login with Google</a>
             </div>
         {:else if !isStudyMode && !editingTask}
@@ -458,55 +478,66 @@
 
         {#if isStudyMode}
             <div class="study-workspace">
-                <div class="study-header">
-                    <h2>Study Mode: {editingTask.title}</h2>
+                <div class="study-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                    <input class="ws-title-input" type="text" bind:value={editingTask.title} placeholder="Document Title" style="background:transparent; border:none; border-bottom:1px solid #333; color:white; font-size:1.4rem; font-weight:bold; width:60%; padding:8px 0;" on:input={saveEdit} />
                     <button class="btn secondary" on:click={closeEdit}>Exit Study Mode</button>
                 </div>
 
-                <div class="split-layout">
-                    <div class="pdf-panel">
-                        <div class="panel-tools">
-                            {#if !editingTask.pdf_url}
-                                <label class="upload-btn">
-                                    Upload PDF to Drive
-                                    <input type="file" accept="application/pdf" style="display:none;" on:change={handlePdfUpload} />
-                                </label>
+                <!-- Minimalist Left-Column Study Mode Layout -->
+                <div class="study-layout-container {isHeaderCollapsed ? 'maximized' : ''}">
+                    <!-- LEFT COLUMN: Narrow Audio & Transcript -->
+                    <div class="study-sidebar">
+                        <div class="pane-header">Audio & Transcript</div>
+                        
+                        <div class="audio-controls">
+                            {#if !isRecording}
+                                <button class="btn action-btn record-btn" on:click={startRecording}>🔴 Record</button>
                             {:else}
-                                <div class="pdf-nav">
-                                    <button on:click={() => renderPage(pageNum-1)} disabled={pageNum<=1}>Prev Slide</button>
-                                    <span style="font-weight: bold; color: #a5b4fc;">Slide {pageNum}</span>
-                                    <button on:click={() => renderPage(pageNum+1)} disabled={!pdfDoc || pageNum >= pdfDoc.numPages}>Next Slide</button>
-                                </div>
+                                <button class="btn action-btn stop-btn" on:click={stopRecording}>⏹ Stop (Saves)</button>
                             {/if}
                         </div>
-                        <div class="canvas-container">
-                            <canvas bind:this={canvasRef}></canvas>
+                        {#if editingTask.audio_url}
+                            <div style="margin-bottom: 15px;">
+                                <audio controls class="audio-player" src={editingTask.audio_url} on:timeupdate={handleAudioTimeUpdate}></audio>
+                            </div>
+                        {/if}
+                        
+                        <div class="transcript-box" id="transcript-scroll-box">
+                            <p class="section-label" style="font-size:0.75rem; margin-bottom:8px;">Live Transcription</p>
+                            <textarea class="transcription-box" bind:value={editingTask.transcription} on:input={saveEdit} placeholder="Your live speech will appear here..."></textarea>
                         </div>
                     </div>
 
-                    <div class="transcript-panel">
-                        <div class="audio-block">
-                            <div class="recording-controls">
-                                {#if !isRecording}
-                                    <button class="btn action-btn record-btn" on:click={startRecording}>🔴 Record Live Audio & Transcribe</button>
+                    <!-- RIGHT COLUMN: PDF and Notes -->
+                    <div class="study-main-workspace">
+                        <!-- PDF Top Panel -->
+                        <div class="pdf-panel">
+                            <div class="panel-tools">
+                                {#if !editingTask.pdf_url}
+                                    <label class="upload-btn">
+                                        Upload PDF to Drive
+                                        <input type="file" accept="application/pdf" style="display:none;" on:change={handlePdfUpload} />
+                                    </label>
                                 {:else}
-                                    <button class="btn action-btn stop-btn" on:click={stopRecording}>⏹ Stop Recording (Saves to Drive)</button>
-                                    <span class="recording-pulse">Recording...</span>
+                                    <div class="pdf-nav">
+                                        <button on:click={() => renderPage(pageNum-1)} disabled={pageNum<=1}>Prev Slide</button>
+                                        <span style="font-weight: bold; color: #a5b4fc;">Slide {pageNum}</span>
+                                        <button on:click={() => renderPage(pageNum+1)} disabled={!pdfDoc || pageNum >= pdfDoc.numPages}>Next Slide</button>
+                                    </div>
                                 {/if}
                             </div>
-                            
-                            {#if editingTask.audio_url}
-                                <audio controls class="audio-player" src={editingTask.audio_url} on:timeupdate={handleAudioTimeUpdate}></audio>
-                            {/if}
+                            <div class="canvas-container">
+                                <canvas bind:this={canvasRef}></canvas>
+                            </div>
                         </div>
-                        
+
+                        <!-- Notes Editor Bottom Panel -->
                         <div class="notes-block">
-                            <p class="section-label">Live Transcription</p>
-                            <textarea class="transcription-box" bind:value={editingTask.transcription} on:input={saveEdit} placeholder="Your live speech will appear here..."></textarea>
-                            
-                            <p class="section-label">LaTeX / Markdown Notes</p>
-                            <textarea bind:value={editingTask.description} on:input={() => { saveEdit(); renderPreview(); }} placeholder="Type your notes here..."></textarea>
-                            <div id="md-preview" class="markdown-body"></div>
+                            <p class="section-label" style="font-size:0.75rem;">LaTeX / Markdown Notes</p>
+                            <div style="display:flex; gap:15px; flex:1; min-height:0;">
+                                <textarea bind:value={editingTask.description} on:input={() => { saveEdit(); renderPreview(); }} placeholder="Type your notes here..."></textarea>
+                                <div id="md-preview" class="markdown-body"></div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -519,20 +550,30 @@
     :global(body) { background: #0c0c0c; color: #e2e8f0; font-family: system-ui, sans-serif; margin: 0; padding: 0; }
     main { padding: 20px; display: flex; justify-content: center; }
     .container { width: 100%; max-width: 900px; background: #141414; padding: 25px; border-radius: 10px; border: 1px solid #222; }
-    .study-expanded { max-width: 1500px; height: 90vh; display: flex; flex-direction: column; }
+    .study-expanded { max-width: 1500px; height: 95vh; display: flex; flex-direction: column; overflow: hidden; }
     
-    .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #232323; padding-bottom: 15px; margin-bottom: 20px; }
+    /* Header Collapse Dynamics */
+    .header { transition: all 0.3s ease; overflow: hidden; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #232323; padding-bottom: 15px; margin-bottom: 20px; }
+    .header.collapsed { padding-bottom: 5px; margin-bottom: 10px; border-bottom: 1px solid #222; }
+    .header.collapsed h1 { font-size: 1.1rem; color: #888; margin: 0; }
+    .header-title-area h1 { margin: 0; font-size: 1.5rem; }
+    .header-title-area h1 span { color: #777; font-weight: normal; font-size: 1.2rem; }
+    .header.collapsed h1 span { font-size: 1rem; }
+    .header-actions { display: flex; align-items: center; gap: 15px; }
+    
     .view-tabs { display: flex; gap: 8px; margin-bottom: 20px; border-bottom: 1px solid #222; padding-bottom: 12px; }
     .view-tabs button { background: none; border: none; color: #777; padding: 8px 16px; cursor: pointer; font-weight: 600; }
     .view-tabs button.active { background: #222; color: #fff; border-radius: 4px; }
     
-    .btn { padding: 10px 15px; border-radius: 6px; border: none; font-weight: bold; cursor: pointer; }
+    .btn { padding: 10px 15px; border-radius: 6px; border: none; font-weight: bold; cursor: pointer; transition: 0.2s; }
     .btn.primary { background: #646cff; color: white; }
     .btn.secondary { background: #333; color: white; }
+    .btn.secondary:hover { background: #444; }
     .full-width { width: 100%; box-sizing: border-box; }
     
     .login-box { text-align: center; padding: 40px; background: #1a1a1a; border: 1px solid #333; border-radius: 8px; }
     .google-btn { display: inline-block; background: #4285f4; color: white; text-decoration: none; padding: 10px 20px; border-radius: 4px; font-weight: 500; margin-top: 15px; }
+    .logout-btn { background: #333; color: #ccc; border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; }
 
     .task-input { display: flex; gap: 10px; margin-bottom: 20px; }
     .task-input input { flex: 1; padding: 10px; background: #1a1a1a; border: 1px solid #333; color: white; border-radius: 4px; }
@@ -573,33 +614,40 @@
 
     .settings-card { background: #1a1a1a; padding: 20px; border-radius: 8px; border: 1px solid #222; }
 
-    /* STUDY MODE FULLSCREEN */
+    /* Layout Skeleton v30 */
     .study-workspace { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-    .study-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 15px; margin-bottom: 15px; }
-    .study-header h2 { margin: 0; color: #646cff; }
-    .split-layout { display: flex; gap: 20px; flex: 1; min-height: 0; }
+    .study-layout-container { display: flex; gap: 20px; width: 100%; flex: 1; transition: flex 0.3s ease; min-height: 0; }
+
+    /* Left Sidebar: Audio & Transcript */
+    .study-sidebar { width: 280px; flex-shrink: 0; display: flex; flex-direction: column; background: #161616; border: 1px solid #333; border-radius: 8px; padding: 15px; box-sizing: border-box; overflow: hidden; }
+    .pane-header { font-size: 0.8rem; font-weight: bold; color: #666; text-transform: uppercase; letter-spacing: 1px; padding-bottom: 6px; border-bottom: 1px solid #222; margin-bottom: 15px; }
+    .audio-controls { display: flex; gap: 10px; margin-bottom: 15px; }
+    .btn.action-btn { flex: 1; padding: 10px; border-radius: 6px; font-weight: bold; cursor: pointer; border: none; text-align: center; transition: 0.2s; }
+    .record-btn { background: #e11d48; color: white; }
+    .record-btn:hover { background: #f43f5e; }
+    .stop-btn { background: #475569; color: white; }
+    .stop-btn:hover { background: #64748b; }
+    .audio-player { width: 100%; height: 35px; border-radius: 4px; }
     
-    .pdf-panel { flex: 3; background: #080808; display: flex; flex-direction: column; border-radius: 8px; border: 1px solid #333; overflow: hidden; }
-    .panel-tools { padding: 15px; background: #161616; border-bottom: 1px solid #333; display: flex; justify-content: center;}
+    .transcript-box { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+    .transcription-box { flex: 1; background: #0f172a; border: 1px solid #1e293b; color: #94a3b8; padding: 12px; border-radius: 6px; font-family: inherit; resize: none; width: 100%; box-sizing: border-box; line-height: 1.5; outline: none;}
+    .transcription-box:focus { border-color: #646cff; }
+
+    /* Right Main Area */
+    .study-main-workspace { flex: 1; display: flex; flex-direction: column; gap: 15px; min-width: 0; overflow: hidden; }
+    .pdf-panel { flex: 3; display: flex; flex-direction: column; background: #080808; border-radius: 8px; border: 1px solid #333; overflow: hidden; min-height: 0; }
+    .panel-tools { padding: 12px; background: #161616; border-bottom: 1px solid #333; display: flex; justify-content: center;}
     .pdf-nav { display: flex; align-items: center; gap: 15px; }
     .pdf-nav button { background: #2a2a3a; color: white; border: 1px solid #4a4a6a; padding: 6px 15px; border-radius: 4px; font-weight: bold; cursor: pointer; }
-    .canvas-container { flex: 1; overflow: auto; display: flex; justify-content: center; padding: 20px; }
-    canvas { background: white; box-shadow: 0 4px 15px rgba(0,0,0,0.5); border-radius: 4px;}
+    .pdf-nav button:hover:not(:disabled) { background: #3f3f5a; }
+    .pdf-nav button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .canvas-container { flex: 1; overflow: auto; display: flex; justify-content: center; padding: 15px; background: #111; }
+    canvas { background: white; box-shadow: 0 4px 20px rgba(0,0,0,0.8); border-radius: 4px; max-width: 100%; object-fit: contain; }
 
-    .transcript-panel { flex: 2; display: flex; flex-direction: column; gap: 15px; min-height: 0; }
-    .audio-block { background: #161616; padding: 15px; border-radius: 8px; border: 1px solid #333; }
-    .recording-controls { display: flex; align-items: center; gap: 15px; margin-bottom: 10px; }
-    .action-btn { padding: 10px 20px; border-radius: 6px; font-weight: bold; cursor: pointer; border: none; width: 100%;}
-    .record-btn { background: #e11d48; color: white; }
-    .stop-btn { background: #475569; color: white; }
-    .recording-pulse { color: #f43f5e; font-weight: bold; animation: pulse 1.5s infinite; }
-    @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
-    .audio-player { width: 100%; border-radius: 4px;}
-    
-    .notes-block { flex: 1; background: #161616; padding: 15px; border-radius: 8px; border: 1px solid #333; display: flex; flex-direction: column; overflow-y: auto; }
-    .section-label { font-weight: bold; color: #a5b4fc; margin: 0 0 8px 0; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px;}
-    .transcription-box { background: #0f172a; border: 1px solid #1e293b; color: #94a3b8; padding: 15px; border-radius: 6px; min-height: 120px; margin-bottom: 20px; line-height: 1.5; font-family: inherit;}
-    .notes-block textarea { background: #111; color: white; border: 1px solid #333; padding: 15px; border-radius: 6px; font-family: inherit; margin-bottom: 15px; resize: vertical; min-height: 120px; line-height: 1.5;}
-    .markdown-body { padding: 15px; background: #111; border-radius: 6px; min-height: 100px; border: 1px solid #333;}
-    .upload-btn { background: #646cff; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: bold; color: white;}
+    .notes-block { flex: 2; display: flex; flex-direction: column; background: #161616; padding: 15px; border-radius: 8px; border: 1px solid #333; min-height: 0; }
+    .notes-block textarea { flex: 1; background: #111; color: white; border: 1px solid #333; padding: 15px; border-radius: 6px; font-family: inherit; resize: none; line-height: 1.5; outline: none; }
+    .notes-block textarea:focus { border-color: #646cff; }
+    .markdown-body { flex: 1; padding: 15px; background: #111; border-radius: 6px; border: 1px solid #333; overflow-y: auto; line-height: 1.6; }
+    .upload-btn { background: #646cff; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: bold; color: white; transition: 0.2s; }
+    .upload-btn:hover { background: #747bff; }
 </style>
