@@ -53,10 +53,15 @@ async function initDB() {
         try { await pool.query(`ALTER TABLE tasks ADD COLUMN pdf_url VARCHAR(1024)`); } catch (e) {}
         try { await pool.query(`ALTER TABLE tasks ADD COLUMN audio_url VARCHAR(1024)`); } catch (e) {}
         try { await pool.query(`ALTER TABLE tasks ADD COLUMN transcription TEXT`); } catch (e) {}
-        
         try { await pool.query(`ALTER TABLE tasks ADD COLUMN drive_pdf_id VARCHAR(255)`); } catch (e) {}
         try { await pool.query(`ALTER TABLE tasks ADD COLUMN drive_audio_id VARCHAR(255)`); } catch (e) {}
         try { await pool.query(`ALTER TABLE tasks ADD COLUMN slide_tracking TEXT`); } catch (e) {}
+
+        // PATCH v30.2: Ensure Scheduling columns exist for Agenda/Calendar functionality
+        try { await pool.query(`ALTER TABLE tasks ADD COLUMN predecessors JSONB DEFAULT '[]'`); } catch (e) {}
+        try { await pool.query(`ALTER TABLE tasks ADD COLUMN assignees JSONB DEFAULT '[]'`); } catch (e) {}
+        try { await pool.query(`ALTER TABLE tasks ADD COLUMN reminder_time VARCHAR(50)`); } catch (e) {}
+        try { await pool.query(`ALTER TABLE tasks ADD COLUMN reminder_frequency VARCHAR(50)`); } catch (e) {}
 
         await pool.query(`CREATE TABLE IF NOT EXISTS user_api_keys (id SERIAL PRIMARY KEY, user_id INTEGER REFERENCES users(id) ON DELETE CASCADE, key_name VARCHAR(100) NOT NULL, api_key_hash VARCHAR(64) UNIQUE NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`);
     } catch (err) { console.error("DB Error:", err); }
@@ -113,7 +118,14 @@ async function ensureAuthenticatedOrApiKey(req, res, next) {
 
 app.get('/api/user', (req, res) => res.json(req.user || null));
 
-// v30: Timezone automatic background sync endpoint
+// PATCH v30.2: Re-expose /api/users so the frontend can populate assignee dropdowns
+app.get('/api/users', ensureAuthenticatedOrApiKey, async (req, res) => {
+    try {
+        const result = await pool.query('SELECT id, username FROM users');
+        res.json(result.rows);
+    } catch (err) { res.status(500).json({ error: 'Failed fetching users' }); }
+});
+
 app.put('/api/user/timezone', ensureAuthenticatedOrApiKey, async (req, res) => {
     const { timezone } = req.body;
     if (!timezone) return res.status(400).json({ error: "Timezone required" });
@@ -153,11 +165,12 @@ app.post('/api/tasks', ensureAuthenticatedOrApiKey, async (req, res) => {
     catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
+// PATCH v30.2: Safely update scheduling fields alongside study mode fields
 app.put('/api/tasks/:id', ensureAuthenticatedOrApiKey, async (req, res) => {
-    const { title, description, completed, dueDate, pdf_url, audio_url, transcription, drive_pdf_id, drive_audio_id, slide_tracking } = req.body;
+    const { title, description, completed, dueDate, predecessors, assignees, reminderTime, reminderFrequency, pdf_url, audio_url, transcription, drive_pdf_id, drive_audio_id, slide_tracking } = req.body;
     try {
-        await pool.query(`UPDATE tasks SET title=$1, description=$2, completed=$3, due_date=$4, pdf_url=$5, audio_url=$6, transcription=$7, drive_pdf_id=$8, drive_audio_id=$9, slide_tracking=$10 WHERE id=$11`, 
-            [title, description || null, completed, dueDate || null, pdf_url || null, audio_url || null, transcription || null, drive_pdf_id || null, drive_audio_id || null, slide_tracking || null, req.params.id]);
+        await pool.query(`UPDATE tasks SET title=$1, description=$2, completed=$3, due_date=$4, pdf_url=$5, audio_url=$6, transcription=$7, drive_pdf_id=$8, drive_audio_id=$9, slide_tracking=$10, predecessors=$11, assignees=$12, reminder_time=$13, reminder_frequency=$14 WHERE id=$15`, 
+            [title, description || null, completed, dueDate || null, pdf_url || null, audio_url || null, transcription || null, drive_pdf_id || null, drive_audio_id || null, slide_tracking || null, JSON.stringify(predecessors || []), JSON.stringify(assignees || []), reminderTime || null, reminderFrequency || null, req.params.id]);
         io.emit('workspace-update'); res.json({ success: true });
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });

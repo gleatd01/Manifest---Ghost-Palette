@@ -1,5 +1,5 @@
 <script>
-    import { onMount } from 'svelte';
+    import { onMount, tick } from 'svelte';
     import { io } from 'socket.io-client';
     import * as pdfjsLib from 'pdfjs-dist';
 
@@ -7,10 +7,18 @@
 
     let user = null;
     let tasks = [];
+    let allUsers = []; // PATCH: Restore Users Array for Assignees
     let currentView = 'list';
     let editingTask = null;
     let isStudyMode = false;
     let isHeaderCollapsed = false;
+    
+    // PATCH: Restore Scheduling State Variables
+    let showAssignees = false;
+    let showDependencies = false;
+    let showReminder = false;
+    let selectedDep = null;
+    let selectedAssignee = null;
     
     let canvasRef;
     let pdfDoc = null;
@@ -58,7 +66,7 @@
     onMount(async () => {
         await checkUser();
         if (user) {
-            await loadTasks();
+            await Promise.all([loadTasks(), loadUsers()]); // PATCH: Load allUsers
             const socket = io();
             socket.on('workspace-update', async () => await loadTasks());
             initSpeechRecognition();
@@ -81,6 +89,9 @@
     }
     
     async function loadTasks() { const res = await fetch('/api/tasks'); if (res.ok) tasks = await res.json(); }
+    
+    // PATCH: Restore loadUsers to fetch assignable teammates
+    async function loadUsers() { const res = await fetch('/api/users'); if (res.ok) allUsers = await res.json(); }
 
     function initSpeechRecognition() {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -121,23 +132,97 @@
         newTaskTitle = '';
     }
 
+    // PATCH: Blocked status logic
+    function isBlocked(task) {
+        if (!task.predecessors || task.predecessors.length === 0) return false;
+        let parsed = typeof task.predecessors === 'string' ? JSON.parse(task.predecessors) : task.predecessors;
+        return parsed.some(pid => {
+            const p = tasks.find(t => t.id === pid);
+            return p && !p.completed;
+        });
+    }
+
+    function getTaskName(id) {
+        const t = tasks.find(t => t.id === id);
+        return t ? t.title : 'Unknown Task';
+    }
+    
+    function getUserName(id) {
+        const u = allUsers.find(u => u.id === id);
+        return u ? u.username : 'Unknown User';
+    }
+
     async function toggleComplete(task) {
+        if (isBlocked(task)) return; // Prevent completion if blocked
         task.completed = !task.completed;
         tasks = [...tasks];
-        await fetch(`/api/tasks/${task.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(task) });
+        
+        let p = typeof task.predecessors === 'string' ? JSON.parse(task.predecessors) : (task.predecessors || []);
+        let a = typeof task.assignees === 'string' ? JSON.parse(task.assignees) : (task.assignees || []);
+
+        await fetch(`/api/tasks/${task.id}`, { 
+            method: 'PUT', 
+            headers: { 'Content-Type': 'application/json' }, 
+            body: JSON.stringify({
+                ...task,
+                dueDate: task.due_date,
+                predecessors: p,
+                assignees: a,
+                reminderTime: task.reminder_time,
+                reminderFrequency: task.reminder_frequency
+            }) 
+        });
     }
 
     function openEdit(task) {
-        editingTask = { ...task };
+        // PATCH: Restore arrays and variables for the scheduling modal
+        editingTask = { 
+            ...task,
+            due_date: task.due_date ? task.due_date.split('T')[0] : '',
+            predecessors: typeof task.predecessors === 'string' ? JSON.parse(task.predecessors) : (task.predecessors || []),
+            assignees: typeof task.assignees === 'string' ? JSON.parse(task.assignees) : (task.assignees || []),
+            reminder_time: task.reminder_time || '',
+            reminder_frequency: task.reminder_frequency || 'daily'
+        };
+        showReminder = !!task.reminder_time;
+        selectedDep = null;
+        selectedAssignee = null;
+        showAssignees = false;
+        showDependencies = false;
+
         isStudyMode = false;
         isHeaderCollapsed = false;
     }
+
+    // PATCH: Methods for UI additions
+    function addDep() {
+        if (selectedDep && !editingTask.predecessors.includes(selectedDep)) {
+            editingTask.predecessors = [...editingTask.predecessors, selectedDep];
+            selectedDep = null;
+        }
+    }
+    function removeDep(id) { editingTask.predecessors = editingTask.predecessors.filter(pid => pid !== id); }
+    
+    function addAssignee() {
+        if (selectedAssignee && !editingTask.assignees.includes(selectedAssignee)) {
+            editingTask.assignees = [...editingTask.assignees, selectedAssignee];
+            selectedAssignee = null;
+        }
+    }
+    function removeAssignee(id) { editingTask.assignees = editingTask.assignees.filter(uid => uid !== id); }
 
     async function saveEdit() {
         await fetch(`/api/tasks/${editingTask.id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(editingTask)
+            body: JSON.stringify({
+                ...editingTask,
+                dueDate: editingTask.due_date,
+                predecessors: editingTask.predecessors,
+                assignees: editingTask.assignees,
+                reminderTime: showReminder && editingTask.reminder_time ? editingTask.reminder_time : null,
+                reminderFrequency: showReminder && editingTask.reminder_frequency ? editingTask.reminder_frequency : null
+            })
         });
         loadTasks();
     }
@@ -155,7 +240,7 @@
         else currentDate = new Date(currentYear, currentMonth, currentDate.getDate() + (dir * 7));
     }
 
-    function openStudyMode() {
+    async function openStudyMode() {
         isStudyMode = true;
         isHeaderCollapsed = true;
         if (editingTask.slide_tracking) {
@@ -165,7 +250,8 @@
         }
         
         if (editingTask.pdf_url) {
-            setTimeout(() => loadPdf(editingTask.pdf_url), 100);
+            await tick(); 
+            loadPdf(editingTask.pdf_url);
         }
     }
 
@@ -180,6 +266,9 @@
         isRendering = true;
         pageNum = num;
         activePlaybackPage = num;
+        
+        if (!canvasRef) return; 
+
         const page = await pdfDoc.getPage(num);
         const viewport = page.getViewport({ scale: 1.5 });
         canvasRef.height = viewport.height;
@@ -201,6 +290,7 @@
         const tempUrl = URL.createObjectURL(file);
         if (type === 'pdf') {
             editingTask.pdf_url = tempUrl;
+            await tick(); 
             loadPdf(tempUrl);
         } else if (type === 'audio') {
             editingTask.audio_url = tempUrl;
@@ -327,10 +417,13 @@
                 </div>
                 <ul class="task-list">
                     {#each activeTasks as task}
-                        <li class="task-item">
-                            <input type="checkbox" checked={task.completed} on:change={() => toggleComplete(task)} />
+                        <li class="task-item {isBlocked(task) ? 'blocked' : ''}">
+                            <input type="checkbox" disabled={isBlocked(task)} checked={task.completed} on:change={() => toggleComplete(task)} />
                             <!-- svelte-ignore a11y-click-events-have-key-events -->
-                            <div class="task-content" on:click={() => openEdit(task)}>{task.title}</div>
+                            <div class="task-content" on:click={() => openEdit(task)}>
+                                <span class="task-title">{task.title}</span>
+                                {#if isBlocked(task)}<span class="badge warning" title="Waiting on predecessor">🔒 Blocked</span>{/if}
+                            </div>
                         </li>
                     {/each}
                 </ul>
@@ -366,7 +459,7 @@
                                     <div class="day-num">{i + 1}</div>
                                     {#each activeTasks.filter(t => t.due_date && new Date(t.due_date).getDate() === (i+1) && new Date(t.due_date).getMonth() === currentMonth) as t}
                                         <!-- svelte-ignore a11y-click-events-have-key-events -->
-                                        <div class="mini-task" on:click={() => openEdit(t)}>{t.title}</div>
+                                        <div class="mini-task {isBlocked(t) ? 'blocked' : ''}" on:click={() => openEdit(t)}>{t.title}</div>
                                     {/each}
                                 </div>
                             {/each}
@@ -378,7 +471,7 @@
                                     <div class="day-header">{wd.dateObj.toLocaleString('default', {weekday: 'short'})} {wd.dayNum}</div>
                                     {#each wd.tasks as t}
                                         <!-- svelte-ignore a11y-click-events-have-key-events -->
-                                        <div class="mini-task" on:click={() => openEdit(t)}>{t.title}</div>
+                                        <div class="mini-task {isBlocked(t) ? 'blocked' : ''}" on:click={() => openEdit(t)}>{t.title}</div>
                                     {/each}
                                 </div>
                             {/each}
@@ -392,7 +485,7 @@
                     {#if agendaTasks.length === 0} <p class="empty" style="color:#666; font-style:italic;">No tasks on the agenda.</p> {/if}
                     {#each agendaTasks as task}
                         <!-- svelte-ignore a11y-click-events-have-key-events -->
-                        <div class="agenda-item {task.completed ? 'completed' : ''}" on:click={() => openEdit(task)}>
+                        <div class="agenda-item {task.completed ? 'completed' : ''} {isBlocked(task) ? 'blocked' : ''}" on:click={() => openEdit(task)}>
                             <div class="agenda-date">
                                 {#if task.due_date}
                                     <span class="day">{new Date(task.due_date).toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' })}</span>
@@ -401,7 +494,13 @@
                                     <span class="no-date">Anytime</span>
                                 {/if}
                             </div>
-                            <div class="agenda-content"> <span class="task-title">{task.title}</span> </div>
+                            <div class="agenda-content"> 
+                                <span class="task-title">{task.title}</span> 
+                                <div class="agenda-badges">
+                                    {#if isBlocked(task)}<span class="badge warning">🔒 Blocked</span>{/if}
+                                    {#if task.reminder_time}<span class="badge">⏰ {task.reminder_time}</span>{/if}
+                                </div>
+                            </div>
                         </div>
                     {/each}
                 </div>
@@ -411,8 +510,10 @@
                     <h2>Project Timeline</h2>
                     {#if activeTasks.length === 0} <p>No tasks to map.</p> {/if}
                     {#each activeTasks as task}
-                        <div class="gantt-row">
-                            <div class="gantt-label">{task.title}</div>
+                        <div class="gantt-row {isBlocked(task) ? 'blocked' : ''}">
+                            <div class="gantt-label">
+                                {#if isBlocked(task)}🔒 {/if}{task.title}
+                            </div>
                             <div class="gantt-bar"></div>
                         </div>
                     {/each}
@@ -453,6 +554,92 @@
                     <h2>Edit Task</h2>
                     <input class="full-width" type="text" bind:value={editingTask.title} style="padding:10px; background:#111; border:1px solid #333; color:white; margin-bottom:15px; border-radius:4px;"/>
                     
+                    <!-- PATCH: RESTORE SCHEDULING CONTROLS -->
+                    <div class="modal-row" style="justify-content: space-between; margin-bottom: 10px;">
+                        <div style="display:flex; align-items:center; gap:10px;">
+                            <label style="color:#aaa; font-size:0.9rem;">Due Date:</label>
+                            <input type="date" bind:value={editingTask.due_date} style="background:#111; border:1px solid #333; color:white; border-radius:4px; padding:5px;"/>
+                        </div>
+                        <button class="btn secondary small-btn" on:click={() => showReminder = !showReminder} title="Set Recurring Reminder">
+                            ⏰ {showReminder ? 'Remove Reminder' : 'Add Reminder'}
+                        </button>
+                    </div>
+
+                    {#if showReminder}
+                        <div class="reminder-box">
+                            <label>Remind me at:</label>
+                            <input type="time" bind:value={editingTask.reminder_time} />
+                            <select bind:value={editingTask.reminder_frequency} style="margin-left: 10px; width: auto; background:#111; border:1px solid #333; color:white; padding:5px;">
+                                <option value="daily">Every Day</option>
+                                <option value="weekdays">Every Weekday (Mon-Fri)</option>
+                                <option value="weekends">Every Weekend (Sat-Sun)</option>
+                            </select>
+                        </div>
+                    {/if}
+
+                    <div class="modal-section">
+                        <button class="section-toggle" on:click={() => showAssignees = !showAssignees}>
+                            <span>Assigned To (Shared Users)</span>
+                            <span class="chevron">{showAssignees ? '▼' : '▶'}</span>
+                        </button>
+                        {#if showAssignees}
+                            <div class="section-content">
+                                <div class="dep-list">
+                                    {#if editingTask.assignees.length === 0}
+                                        <span style="color: #666; font-size: 0.85rem; font-style: italic;">Private (Only you)</span>
+                                    {/if}
+                                    {#each editingTask.assignees as uid}
+                                        <span class="dep-badge shared-badge">
+                                            {getUserName(uid)} 
+                                            <button class="remove-dep" on:click={() => removeAssignee(uid)}>x</button>
+                                        </span>
+                                    {/each}
+                                </div>
+                                <div class="add-dep">
+                                    <select bind:value={selectedAssignee} style="flex:1; background:#111; border:1px solid #333; color:white; padding:5px;">
+                                        <option value={null}>-- Select user to share with --</option>
+                                        {#each allUsers.filter(u => u.id !== editingTask.user_id && !editingTask.assignees.includes(u.id)) as u}
+                                            <option value={u.id}>{u.username}</option>
+                                        {/each}
+                                    </select>
+                                    <button class="btn secondary" on:click={addAssignee}>Add</button>
+                                </div>
+                            </div>
+                        {/if}
+                    </div>
+
+                    <div class="modal-section" style="margin-bottom: 15px;">
+                        <button class="section-toggle" on:click={() => showDependencies = !showDependencies}>
+                            <span>Depends on (Predecessors)</span>
+                            <span class="chevron">{showDependencies ? '▼' : '▶'}</span>
+                        </button>
+                        {#if showDependencies}
+                            <div class="section-content">
+                                <div class="dep-list">
+                                    {#if editingTask.predecessors.length === 0}
+                                        <span style="color: #666; font-size: 0.85rem; font-style: italic;">No dependencies.</span>
+                                    {/if}
+                                    {#each editingTask.predecessors as pid}
+                                        <span class="dep-badge">
+                                            {getTaskName(pid)} 
+                                            <button class="remove-dep" on:click={() => removeDep(pid)}>x</button>
+                                        </span>
+                                    {/each}
+                                </div>
+                                <div class="add-dep">
+                                    <select bind:value={selectedDep} style="flex:1; background:#111; border:1px solid #333; color:white; padding:5px;">
+                                        <option value={null}>-- Select a prerequisite task --</option>
+                                        {#each tasks.filter(t => t.id !== editingTask.id && !editingTask.predecessors.includes(t.id)) as t}
+                                            <option value={t.id}>{t.title} {t.completed ? '(Done)' : ''}</option>
+                                        {/each}
+                                    </select>
+                                    <button class="btn secondary" on:click={addDep}>Add</button>
+                                </div>
+                            </div>
+                        {/if}
+                    </div>
+                    <!-- END PATCH -->
+
                     <div class="study-launch-banner">
                         <p>Want to write LaTeX notes alongside an Audio Transcription?</p>
                         <button class="btn primary full-width" on:click={openStudyMode}>📚 Open Study Mode (Attach PDF & Audio)</button>
@@ -580,11 +767,27 @@
     .add-btn { background: #646cff; color: white; border: none; padding: 0 20px; font-size: 1.5rem; border-radius: 4px; }
     .task-list { list-style: none; padding: 0; margin: 0; }
     .task-item { display: flex; align-items: center; gap: 15px; background: #1a1a1a; padding: 15px; margin-bottom: 10px; border-radius: 6px; border: 1px solid #222; cursor: pointer; }
+    .task-item.blocked { opacity: 0.5; }
 
-    .modal-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 100; }
-    .modal { background: #1a1a1a; padding: 25px; border-radius: 8px; width: 400px; border: 1px solid #333; }
+    .modal-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 100; overflow-y: auto;}
+    .modal { background: #1a1a1a; padding: 25px; border-radius: 8px; width: 450px; border: 1px solid #333; margin: auto;}
     .study-launch-banner { background: #1f1f3a; padding: 15px; border-radius: 6px; margin: 20px 0; border: 1px solid #2a2a5a; text-align: center; }
     .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+
+    /* PATCH: RESTORE SCHEDULING MODAL STYLES */
+    .badge { background: #555; color: #ddd; font-size: 0.75rem; padding: 3px 8px; border-radius: 12px; white-space: nowrap; margin-left:10px; }
+    .badge.warning { background: #8a6a00; font-weight: bold; }
+    .reminder-box { display: flex; align-items: center; background: #2a2a2a; padding: 10px 15px; border-radius: 6px; border-left: 3px solid #f1c40f; margin-bottom: 15px; }
+    .reminder-box label { font-size: 0.9rem; margin-right: 10px; color:#aaa;}
+    .modal-section { background: #111; padding: 12px; border-radius: 6px; border: 1px solid #222; margin-top: 10px;}
+    .section-toggle { width: 100%; display: flex; justify-content: space-between; align-items: center; background: transparent; border: none; color: #aaa; font-size: 0.9rem; font-weight: bold; padding: 0; cursor: pointer;}
+    .section-content { margin-top: 10px; border-top: 1px solid #222; padding-top: 10px; display: flex; flex-direction: column; gap: 10px; }
+    .chevron { font-size: 0.8rem; color: #666; }
+    .dep-list { display: flex; flex-wrap: wrap; gap: 8px; }
+    .dep-badge { background: #333; border: 1px solid #555; padding: 5px 10px; border-radius: 6px; font-size: 0.85rem; display: flex; align-items: center; gap: 8px; color: #ddd; }
+    .shared-badge { background: #1b4332; border-color: #2d6a4f; }
+    .remove-dep { background: transparent; border: none; color: #ff5555; cursor: pointer; font-weight: bold; padding: 0 4px; font-size: 1rem; }
+    .add-dep { display: flex; gap: 8px; }
 
     /* Calendar */
     .cal-controls { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
@@ -601,14 +804,17 @@
     .day-num { text-align: right; color: #666; font-size: 0.8rem; margin-bottom: 5px;}
     .day-header { text-align: center; font-weight: bold; color: #888; font-size: 0.85rem; padding-bottom: 5px; border-bottom: 1px solid #333; margin-bottom: 5px; }
     .mini-task { background: #646cff; color: white; font-size: 0.7rem; padding: 3px 5px; border-radius: 2px; margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+    .mini-task.blocked { background: #8a6a00; opacity: 0.8; }
 
     /* Agenda & Gantt */
     .agenda-view { background: #1a1a1a; padding: 20px; border-radius: 8px; }
     .agenda-item { display: flex; align-items: center; background: #111; border: 1px solid #222; padding: 12px; margin-bottom: 10px; border-radius: 6px; border-left: 4px solid #646cff; }
+    .agenda-item.blocked { opacity: 0.5; border-left-color: #8a6a00;}
     .agenda-date { min-width: 80px; display: flex; flex-direction: column; align-items: center; padding-right: 15px; border-right: 1px solid #333; margin-right: 15px; }
     .agenda-date .date { font-size: 1.1rem; font-weight: bold; color: #eee; }
     .gantt-view { background: #1a1a1a; padding: 20px; border-radius: 8px; }
     .gantt-row { display: flex; align-items: center; margin-bottom: 10px; border-bottom: 1px solid #222; padding-bottom: 10px; }
+    .gantt-row.blocked .gantt-bar { background: #8a6a00; opacity: 0.5; }
     .gantt-label { width: 150px; font-weight: bold; }
     .gantt-bar { height: 20px; background: #646cff; border-radius: 10px; width: 60%; }
 
