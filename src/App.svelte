@@ -7,13 +7,12 @@
 
     let user = null;
     let tasks = [];
-    let allUsers = []; // PATCH: Restore Users Array for Assignees
+    let allUsers = []; 
     let currentView = 'list';
     let editingTask = null;
     let isStudyMode = false;
     let isHeaderCollapsed = false;
     
-    // PATCH: Restore Scheduling State Variables
     let showAssignees = false;
     let showDependencies = false;
     let showReminder = false;
@@ -66,7 +65,7 @@
     onMount(async () => {
         await checkUser();
         if (user) {
-            await Promise.all([loadTasks(), loadUsers()]); // PATCH: Load allUsers
+            await Promise.all([loadTasks(), loadUsers()]);
             const socket = io();
             socket.on('workspace-update', async () => await loadTasks());
             initSpeechRecognition();
@@ -89,8 +88,6 @@
     }
     
     async function loadTasks() { const res = await fetch('/api/tasks'); if (res.ok) tasks = await res.json(); }
-    
-    // PATCH: Restore loadUsers to fetch assignable teammates
     async function loadUsers() { const res = await fetch('/api/users'); if (res.ok) allUsers = await res.json(); }
 
     function initSpeechRecognition() {
@@ -132,7 +129,6 @@
         newTaskTitle = '';
     }
 
-    // PATCH: Blocked status logic
     function isBlocked(task) {
         if (!task.predecessors || task.predecessors.length === 0) return false;
         let parsed = typeof task.predecessors === 'string' ? JSON.parse(task.predecessors) : task.predecessors;
@@ -153,7 +149,7 @@
     }
 
     async function toggleComplete(task) {
-        if (isBlocked(task)) return; // Prevent completion if blocked
+        if (isBlocked(task)) return;
         task.completed = !task.completed;
         tasks = [...tasks];
         
@@ -175,7 +171,6 @@
     }
 
     function openEdit(task) {
-        // PATCH: Restore arrays and variables for the scheduling modal
         editingTask = { 
             ...task,
             due_date: task.due_date ? task.due_date.split('T')[0] : '',
@@ -194,7 +189,6 @@
         isHeaderCollapsed = false;
     }
 
-    // PATCH: Methods for UI additions
     function addDep() {
         if (selectedDep && !editingTask.predecessors.includes(selectedDep)) {
             editingTask.predecessors = [...editingTask.predecessors, selectedDep];
@@ -283,10 +277,12 @@
         }
     }
 
+    // PATCH v30.3: Secure Proxy Link Generation
     async function uploadFileToDrive(file, type) {
         const formData = new FormData();
         formData.append('file', file, file.name || `recording_${Date.now()}.webm`);
         
+        // 1. Temporary UI-only assignment for instant rendering
         const tempUrl = URL.createObjectURL(file);
         if (type === 'pdf') {
             editingTask.pdf_url = tempUrl;
@@ -297,12 +293,21 @@
         }
 
         try {
+            // 2. Upload cleanly to Google Drive backend
             const res = await fetch('/api/drive/upload', { method: 'POST', body: formData });
             const data = await res.json();
+            
+            // 3. Immediately overwrite temporary URL with the permanent Proxy link
             if (data.fileId) {
-                if (type === 'pdf') editingTask.drive_pdf_id = data.fileId;
-                if (type === 'audio') editingTask.drive_audio_id = data.fileId;
-                saveEdit();
+                if (type === 'pdf') {
+                    editingTask.drive_pdf_id = data.fileId;
+                    editingTask.pdf_url = `/api/drive/download/${data.fileId}`;
+                }
+                if (type === 'audio') {
+                    editingTask.drive_audio_id = data.fileId;
+                    editingTask.audio_url = `/api/drive/download/${data.fileId}`;
+                }
+                saveEdit(); // 4. Database permanently stores '/api/drive/download/XXXX'
             }
         } catch (e) { console.error("Drive upload failed", e); }
     }
@@ -554,7 +559,6 @@
                     <h2>Edit Task</h2>
                     <input class="full-width" type="text" bind:value={editingTask.title} style="padding:10px; background:#111; border:1px solid #333; color:white; margin-bottom:15px; border-radius:4px;"/>
                     
-                    <!-- PATCH: RESTORE SCHEDULING CONTROLS -->
                     <div class="modal-row" style="justify-content: space-between; margin-bottom: 10px;">
                         <div style="display:flex; align-items:center; gap:10px;">
                             <label style="color:#aaa; font-size:0.9rem;">Due Date:</label>
@@ -638,7 +642,6 @@
                             </div>
                         {/if}
                     </div>
-                    <!-- END PATCH -->
 
                     <div class="study-launch-banner">
                         <p>Want to write LaTeX notes alongside an Audio Transcription?</p>
@@ -670,9 +673,7 @@
                     <button class="btn secondary" on:click={closeEdit}>Exit Study Mode</button>
                 </div>
 
-                <!-- Minimalist Left-Column Study Mode Layout -->
                 <div class="study-layout-container {isHeaderCollapsed ? 'maximized' : ''}">
-                    <!-- LEFT COLUMN: Narrow Audio & Transcript -->
                     <div class="study-sidebar">
                         <div class="pane-header">Audio & Transcript</div>
                         
@@ -695,9 +696,7 @@
                         </div>
                     </div>
 
-                    <!-- RIGHT COLUMN: PDF and Notes -->
                     <div class="study-main-workspace">
-                        <!-- PDF Top Panel -->
                         <div class="pdf-panel">
                             <div class="panel-tools">
                                 {#if !editingTask.pdf_url}
@@ -718,7 +717,6 @@
                             </div>
                         </div>
 
-                        <!-- Notes Editor Bottom Panel -->
                         <div class="notes-block">
                             <p class="section-label" style="font-size:0.75rem;">LaTeX / Markdown Notes</p>
                             <div style="display:flex; gap:15px; flex:1; min-height:0;">
@@ -739,7 +737,6 @@
     .container { width: 100%; max-width: 900px; background: #141414; padding: 25px; border-radius: 10px; border: 1px solid #222; }
     .study-expanded { max-width: 1500px; height: 95vh; display: flex; flex-direction: column; overflow: hidden; }
     
-    /* Header Collapse Dynamics */
     .header { transition: all 0.3s ease; overflow: hidden; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #232323; padding-bottom: 15px; margin-bottom: 20px; }
     .header.collapsed { padding-bottom: 5px; margin-bottom: 10px; border-bottom: 1px solid #222; }
     .header.collapsed h1 { font-size: 1.1rem; color: #888; margin: 0; }
@@ -774,7 +771,6 @@
     .study-launch-banner { background: #1f1f3a; padding: 15px; border-radius: 6px; margin: 20px 0; border: 1px solid #2a2a5a; text-align: center; }
     .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
 
-    /* PATCH: RESTORE SCHEDULING MODAL STYLES */
     .badge { background: #555; color: #ddd; font-size: 0.75rem; padding: 3px 8px; border-radius: 12px; white-space: nowrap; margin-left:10px; }
     .badge.warning { background: #8a6a00; font-weight: bold; }
     .reminder-box { display: flex; align-items: center; background: #2a2a2a; padding: 10px 15px; border-radius: 6px; border-left: 3px solid #f1c40f; margin-bottom: 15px; }
@@ -789,7 +785,6 @@
     .remove-dep { background: transparent; border: none; color: #ff5555; cursor: pointer; font-weight: bold; padding: 0 4px; font-size: 1rem; }
     .add-dep { display: flex; gap: 8px; }
 
-    /* Calendar */
     .cal-controls { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
     .cal-view-toggles button { background: #111; color: #888; border: 1px solid #333; padding: 5px 15px; border-radius: 4px; cursor: pointer;}
     .cal-view-toggles button.active { background: #646cff; color: white; border-color: #646cff; }
@@ -806,7 +801,6 @@
     .mini-task { background: #646cff; color: white; font-size: 0.7rem; padding: 3px 5px; border-radius: 2px; margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
     .mini-task.blocked { background: #8a6a00; opacity: 0.8; }
 
-    /* Agenda & Gantt */
     .agenda-view { background: #1a1a1a; padding: 20px; border-radius: 8px; }
     .agenda-item { display: flex; align-items: center; background: #111; border: 1px solid #222; padding: 12px; margin-bottom: 10px; border-radius: 6px; border-left: 4px solid #646cff; }
     .agenda-item.blocked { opacity: 0.5; border-left-color: #8a6a00;}
@@ -820,11 +814,9 @@
 
     .settings-card { background: #1a1a1a; padding: 20px; border-radius: 8px; border: 1px solid #222; }
 
-    /* Layout Skeleton v30 */
     .study-workspace { display: flex; flex-direction: column; flex: 1; min-height: 0; }
     .study-layout-container { display: flex; gap: 20px; width: 100%; flex: 1; transition: flex 0.3s ease; min-height: 0; }
 
-    /* Left Sidebar: Audio & Transcript */
     .study-sidebar { width: 280px; flex-shrink: 0; display: flex; flex-direction: column; background: #161616; border: 1px solid #333; border-radius: 8px; padding: 15px; box-sizing: border-box; overflow: hidden; }
     .pane-header { font-size: 0.8rem; font-weight: bold; color: #666; text-transform: uppercase; letter-spacing: 1px; padding-bottom: 6px; border-bottom: 1px solid #222; margin-bottom: 15px; }
     .audio-controls { display: flex; gap: 10px; margin-bottom: 15px; }
@@ -839,7 +831,6 @@
     .transcription-box { flex: 1; background: #0f172a; border: 1px solid #1e293b; color: #94a3b8; padding: 12px; border-radius: 6px; font-family: inherit; resize: none; width: 100%; box-sizing: border-box; line-height: 1.5; outline: none;}
     .transcription-box:focus { border-color: #646cff; }
 
-    /* Right Main Area */
     .study-main-workspace { flex: 1; display: flex; flex-direction: column; gap: 15px; min-width: 0; overflow: hidden; }
     .pdf-panel { flex: 3; display: flex; flex-direction: column; background: #080808; border-radius: 8px; border: 1px solid #333; overflow: hidden; min-height: 0; }
     .panel-tools { padding: 12px; background: #161616; border-bottom: 1px solid #333; display: flex; justify-content: center;}

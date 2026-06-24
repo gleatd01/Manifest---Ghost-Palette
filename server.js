@@ -56,8 +56,6 @@ async function initDB() {
         try { await pool.query(`ALTER TABLE tasks ADD COLUMN drive_pdf_id VARCHAR(255)`); } catch (e) {}
         try { await pool.query(`ALTER TABLE tasks ADD COLUMN drive_audio_id VARCHAR(255)`); } catch (e) {}
         try { await pool.query(`ALTER TABLE tasks ADD COLUMN slide_tracking TEXT`); } catch (e) {}
-
-        // PATCH v30.2: Ensure Scheduling columns exist for Agenda/Calendar functionality
         try { await pool.query(`ALTER TABLE tasks ADD COLUMN predecessors JSONB DEFAULT '[]'`); } catch (e) {}
         try { await pool.query(`ALTER TABLE tasks ADD COLUMN assignees JSONB DEFAULT '[]'`); } catch (e) {}
         try { await pool.query(`ALTER TABLE tasks ADD COLUMN reminder_time VARCHAR(50)`); } catch (e) {}
@@ -92,7 +90,7 @@ passport.use(new GoogleStrategy({
 ));
 
 app.get('/auth/google', passport.authenticate('google', { 
-    scope: ['profile', 'email', 'https://www.googleapis.com/auth/drive.file'],
+    scope: ['profile', 'email', 'https://www.googleapis.com/auth/drive.file', 'https://www.googleapis.com/auth/drive.readonly'],
     accessType: 'offline', 
     prompt: 'consent' 
 }));
@@ -118,7 +116,6 @@ async function ensureAuthenticatedOrApiKey(req, res, next) {
 
 app.get('/api/user', (req, res) => res.json(req.user || null));
 
-// PATCH v30.2: Re-expose /api/users so the frontend can populate assignee dropdowns
 app.get('/api/users', ensureAuthenticatedOrApiKey, async (req, res) => {
     try {
         const result = await pool.query('SELECT id, username FROM users');
@@ -165,7 +162,6 @@ app.post('/api/tasks', ensureAuthenticatedOrApiKey, async (req, res) => {
     catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
-// PATCH v30.2: Safely update scheduling fields alongside study mode fields
 app.put('/api/tasks/:id', ensureAuthenticatedOrApiKey, async (req, res) => {
     const { title, description, completed, dueDate, predecessors, assignees, reminderTime, reminderFrequency, pdf_url, audio_url, transcription, drive_pdf_id, drive_audio_id, slide_tracking } = req.body;
     try {
@@ -175,9 +171,24 @@ app.put('/api/tasks/:id', ensureAuthenticatedOrApiKey, async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
+// PATCH v30.3: Secure Proxy for Google Drive Downloads
+app.get('/api/drive/download/:id', ensureAuthenticatedOrApiKey, async (req, res) => {
+    if (!req.user.google_access_token) return res.status(403).json({ error: 'Google Auth missing.' });
+    try {
+        const oauth2Client = new google.auth.OAuth2(process.env.GOOGLE_CLIENT_ID, process.env.GOOGLE_CLIENT_SECRET);
+        oauth2Client.setCredentials({ access_token: req.user.google_access_token, refresh_token: req.user.google_refresh_token });
+        const drive = google.drive({ version: 'v3', auth: oauth2Client });
+        
+        const driveRes = await drive.files.get({ fileId: req.params.id, alt: 'media' }, { responseType: 'stream' });
+        driveRes.data.pipe(res);
+    } catch (err) {
+        console.error("Drive API Download Error:", err);
+        res.status(500).send('Error downloading file.');
+    }
+});
+
 app.post('/api/drive/upload', ensureAuthenticatedOrApiKey, upload.single('file'), async (req, res) => {
     if (!req.user.google_access_token) return res.status(403).json({ error: 'Google Auth missing.' });
-    
     try {
         const oauth2Client = new google.auth.OAuth2(process.env.GOOGLE_CLIENT_ID, process.env.GOOGLE_CLIENT_SECRET);
         oauth2Client.setCredentials({ access_token: req.user.google_access_token, refresh_token: req.user.google_refresh_token });
@@ -239,4 +250,4 @@ app.post('/api/push/subscribe', ensureAuthenticatedOrApiKey, (req, res) => {
 
 app.use(express.static(path.join(__dirname, 'dist')));
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'dist', 'index.html')));
-server.listen(PORT, () => console.log(`[v30 Minimalist] Server Running. Port: ${PORT}`));
+server.listen(PORT, () => console.log(`[v30.3 Proxy] Server Running. Port: ${PORT}`));
