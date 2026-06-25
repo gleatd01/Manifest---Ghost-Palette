@@ -19,17 +19,33 @@
     let selectedDep = null;
     let selectedAssignee = null;
     
+    // PDF & Viewer variables
+    let pdfContainerRef;
     let canvasRef;
     let pdfDoc = null;
     let pageNum = 1;
     let isRendering = false;
+    let pdfWidth = 0;
+    let pdfHeight = 0;
 
+    // --- V30.4 HANDWRITING & INFINITE WORKSPACE VARIABLES ---
+    let drawingMode = 'off'; // 'off', 'svg', 'fabric'
+    let isPanning = false; 
+    let pzInstance = null;
+    
+    // Fabric state
+    let fabCanvas = null;
+
+    // Perfect Freehand (SVG) state
+    let currentPoints = [];
+    let strokes = [];
+
+    // --- Media Variables ---
     let mediaRecorder = null;
     let audioChunks = [];
     let isRecording = false;
     let recognition = null;
     let recordingStartTime = 0;
-    
     let slideTimeline = []; 
     let activePlaybackPage = 1;
 
@@ -227,6 +243,8 @@
         isStudyMode = false;
         pdfDoc = null;
         isHeaderCollapsed = false;
+        drawingMode = 'off';
+        strokes = [];
     }
 
     function changeDate(dir) {
@@ -234,9 +252,94 @@
         else currentDate = new Date(currentYear, currentMonth, currentDate.getDate() + (dir * 7));
     }
 
+    // --- V30.4 INFINITE CANVAS & HANDWRITING LOGIC ---
+    function initPanzoom() {
+        if (pzInstance) return; // already active
+        const wrapper = document.getElementById('zoom-wrapper');
+        if (!wrapper) return;
+
+        pzInstance = window.panzoom(wrapper, {
+            bounds: true,
+            boundsPadding: 0.1,
+            maxZoom: 5,
+            minZoom: 0.5,
+            beforeMouseDown: function(e) {
+                // If we are actively drawing, DO NOT let panzoom hijack the drag event
+                if (drawingMode !== 'off' && !isPanning) {
+                    return true; // Ignore mouse down, allowing drawing ink
+                }
+                return false; // Proceed with panzoom dragging
+            }
+        });
+    }
+
+    async function handleModeSwitch() {
+        await tick();
+        
+        // Ensure infinite workspace is initialized 
+        if (drawingMode !== 'off') {
+            initPanzoom();
+        }
+
+        // Handle specific Fabric.js mount
+        if (drawingMode === 'fabric') {
+            if (fabCanvas) fabCanvas.dispose();
+            fabCanvas = new window.fabric.Canvas('fab-canvas', {
+                isDrawingMode: true,
+                width: pdfWidth,
+                height: pdfHeight
+            });
+            fabCanvas.freeDrawingBrush.color = '#3b82f6';
+            fabCanvas.freeDrawingBrush.width = 3;
+        } else {
+            if (fabCanvas) { fabCanvas.dispose(); fabCanvas = null; }
+        }
+    }
+
+    function clearHandwriting() {
+        if (drawingMode === 'svg') strokes = [];
+        if (drawingMode === 'fabric' && fabCanvas) fabCanvas.clear();
+    }
+
+    // Perfect Freehand SVG Pointer Handlers
+    function svgDown(e) {
+        if (isPanning) return;
+        e.currentTarget.setPointerCapture(e.pointerId);
+        currentPoints = [[e.offsetX, e.offsetY, e.pressure || 0.5]];
+    }
+    
+    function svgMove(e) {
+        if (isPanning || e.buttons !== 1 || currentPoints.length === 0) return;
+        currentPoints = [...currentPoints, [e.offsetX, e.offsetY, e.pressure || 0.5]];
+    }
+    
+    function svgUp(e) {
+        if (isPanning || currentPoints.length === 0) return;
+        strokes = [...strokes, currentPoints];
+        currentPoints = [];
+    }
+
+    function getSvgPathFromStroke(stroke) {
+        if (!stroke.length) return '';
+        const d = stroke.reduce(
+          (acc, [x0, y0], i, arr) => {
+            const [x1, y1] = arr[(i + 1) % arr.length];
+            acc.push(x0, y0, (x0 + x1) / 2, (y0 + y1) / 2);
+            return acc;
+          },
+          ['M', ...stroke[0], 'Q']
+        );
+        d.push('Z');
+        return d.join(' ');
+    }
+
+    // --- PDF Loading ---
     async function openStudyMode() {
         isStudyMode = true;
         isHeaderCollapsed = true;
+        drawingMode = 'off';
+        isPanning = false;
+
         if (editingTask.slide_tracking) {
             slideTimeline = JSON.parse(editingTask.slide_tracking);
         } else {
@@ -267,6 +370,11 @@
         const viewport = page.getViewport({ scale: 1.5 });
         canvasRef.height = viewport.height;
         canvasRef.width = viewport.width;
+        
+        // Sync drawing overlay dimensions
+        pdfWidth = viewport.width;
+        pdfHeight = viewport.height;
+        
         await page.render({ canvasContext: canvasRef.getContext('2d'), viewport: viewport }).promise;
         isRendering = false;
 
@@ -275,14 +383,18 @@
             slideTimeline.push({ time: timeElapsed, page: num });
             editingTask.slide_tracking = JSON.stringify(slideTimeline);
         }
+
+        // Re-sync fabric canvas sizing if active during page change
+        if (drawingMode === 'fabric' && fabCanvas) {
+            fabCanvas.setWidth(pdfWidth);
+            fabCanvas.setHeight(pdfHeight);
+        }
     }
 
-    // PATCH v30.3: Secure Proxy Link Generation
     async function uploadFileToDrive(file, type) {
         const formData = new FormData();
         formData.append('file', file, file.name || `recording_${Date.now()}.webm`);
         
-        // 1. Temporary UI-only assignment for instant rendering
         const tempUrl = URL.createObjectURL(file);
         if (type === 'pdf') {
             editingTask.pdf_url = tempUrl;
@@ -293,11 +405,9 @@
         }
 
         try {
-            // 2. Upload cleanly to Google Drive backend
             const res = await fetch('/api/drive/upload', { method: 'POST', body: formData });
             const data = await res.json();
             
-            // 3. Immediately overwrite temporary URL with the permanent Proxy link
             if (data.fileId) {
                 if (type === 'pdf') {
                     editingTask.drive_pdf_id = data.fileId;
@@ -307,7 +417,7 @@
                     editingTask.drive_audio_id = data.fileId;
                     editingTask.audio_url = `/api/drive/download/${data.fileId}`;
                 }
-                saveEdit(); // 4. Database permanently stores '/api/drive/download/XXXX'
+                saveEdit();
             }
         } catch (e) { console.error("Drive upload failed", e); }
     }
@@ -698,22 +808,69 @@
 
                     <div class="study-main-workspace">
                         <div class="pdf-panel">
-                            <div class="panel-tools">
-                                {#if !editingTask.pdf_url}
-                                    <label class="upload-btn">
-                                        Upload PDF to Drive
-                                        <input type="file" accept="application/pdf" style="display:none;" on:change={handlePdfUpload} />
-                                    </label>
-                                {:else}
-                                    <div class="pdf-nav">
-                                        <button on:click={() => renderPage(pageNum-1)} disabled={pageNum<=1}>Prev Slide</button>
-                                        <span style="font-weight: bold; color: #a5b4fc;">Slide {pageNum}</span>
-                                        <button on:click={() => renderPage(pageNum+1)} disabled={!pdfDoc || pageNum >= pdfDoc.numPages}>Next Slide</button>
+                            <div class="panel-tools" style="display:flex; flex-direction:column; gap:10px;">
+                                <div style="display:flex; justify-content:space-between; align-items:center; width:100%;">
+                                    {#if !editingTask.pdf_url}
+                                        <label class="upload-btn">
+                                            Upload PDF to Drive
+                                            <input type="file" accept="application/pdf" style="display:none;" on:change={handlePdfUpload} />
+                                        </label>
+                                    {:else}
+                                        <div class="pdf-nav">
+                                            <button on:click={() => renderPage(pageNum-1)} disabled={pageNum<=1}>Prev Slide</button>
+                                            <span style="font-weight: bold; color: #a5b4fc;">Slide {pageNum}</span>
+                                            <button on:click={() => renderPage(pageNum+1)} disabled={!pdfDoc || pageNum >= pdfDoc.numPages}>Next Slide</button>
+                                        </div>
+                                    {/if}
+                                </div>
+                                
+                                <!-- PATCH 30.4: HANDWRITING TESTING TOOLBAR -->
+                                {#if editingTask.pdf_url}
+                                    <div class="hw-tools" style="display:flex; gap:10px; align-items:center; border-top: 1px solid #333; padding-top: 10px;">
+                                        <select bind:value={drawingMode} on:change={handleModeSwitch} style="background:#222; color:white; border:1px solid #444; padding:6px; border-radius:4px; font-size:0.85rem;">
+                                            <option value="off">Mode: Read-Only</option>
+                                            <option value="svg">Mode: Perfect Freehand (Vector)</option>
+                                            <option value="fabric">Mode: Fabric.js (Canvas)</option>
+                                        </select>
+
+                                        {#if drawingMode !== 'off'}
+                                            <button class="btn {isPanning ? 'secondary' : 'primary'} small-btn" style="padding:6px;" on:click={() => isPanning = false}>✏️ Draw</button>
+                                            <button class="btn {isPanning ? 'primary' : 'secondary'} small-btn" style="padding:6px;" on:click={() => isPanning = true}>🖐 Pan Workspace</button>
+                                            <button class="btn secondary small-btn" style="padding:6px; margin-left:auto;" on:click={clearHandwriting}>🗑️ Clear Ink</button>
+                                        {/if}
                                     </div>
                                 {/if}
                             </div>
-                            <div class="canvas-container">
-                                <canvas bind:this={canvasRef}></canvas>
+                            
+                            <!-- INFINITE WORKSPACE CONTAINER -->
+                            <div class="canvas-container" bind:this={pdfContainerRef}>
+                                <div id="zoom-wrapper" style="position: relative; transform-origin: 0 0;">
+                                    <canvas bind:this={canvasRef} class="pdf-base-layer"></canvas>
+                                    
+                                    {#if drawingMode === 'svg'}
+                                        <svg 
+                                            class="drawing-layer svg-layer"
+                                            style="width: {pdfWidth}px; height: {pdfHeight}px; pointer-events: {isPanning ? 'none' : 'auto'};"
+                                            on:pointerdown={svgDown}
+                                            on:pointermove={svgMove}
+                                            on:pointerup={svgUp}
+                                            on:pointerleave={svgUp}
+                                        >
+                                            {#each strokes as stroke}
+                                                <path d={getSvgPathFromStroke(window.perfectFreehand.getStroke(stroke, { size: 6, thinning: 0.5, smoothing: 0.5 }))} fill="#3b82f6" />
+                                            {/each}
+                                            {#if currentPoints.length > 0}
+                                                <path d={getSvgPathFromStroke(window.perfectFreehand.getStroke(currentPoints, { size: 6, thinning: 0.5, smoothing: 0.5 }))} fill="#3b82f6" />
+                                            {/if}
+                                        </svg>
+                                    {/if}
+
+                                    {#if drawingMode === 'fabric'}
+                                        <div class="drawing-layer fabric-layer" style="width: {pdfWidth}px; height: {pdfHeight}px; pointer-events: {isPanning ? 'none' : 'auto'};">
+                                            <canvas id="fab-canvas"></canvas>
+                                        </div>
+                                    {/if}
+                                </div>
                             </div>
                         </div>
 
@@ -838,8 +995,15 @@
     .pdf-nav button { background: #2a2a3a; color: white; border: 1px solid #4a4a6a; padding: 6px 15px; border-radius: 4px; font-weight: bold; cursor: pointer; }
     .pdf-nav button:hover:not(:disabled) { background: #3f3f5a; }
     .pdf-nav button:disabled { opacity: 0.5; cursor: not-allowed; }
-    .canvas-container { flex: 1; overflow: auto; display: flex; justify-content: center; padding: 15px; background: #111; }
-    canvas { background: white; box-shadow: 0 4px 20px rgba(0,0,0,0.8); border-radius: 4px; max-width: 100%; object-fit: contain; }
+    
+    /* V30.4 OVERLAY STYLING */
+    .canvas-container { flex: 1; overflow: hidden; display: flex; justify-content: center; align-items: center; padding: 15px; background: #111; cursor: grab;}
+    .canvas-container:active { cursor: grabbing; }
+    .pdf-base-layer { display: block; background: white; box-shadow: 0 4px 20px rgba(0,0,0,0.8); border-radius: 4px; max-width: 100%; object-fit: contain; }
+    
+    .drawing-layer { position: absolute; top: 0; left: 0; touch-action: none; z-index: 10; }
+    .svg-layer { z-index: 11; }
+    .fabric-layer { z-index: 12; }
 
     .notes-block { flex: 2; display: flex; flex-direction: column; background: #161616; padding: 15px; border-radius: 8px; border: 1px solid #333; min-height: 0; }
     .notes-block textarea { flex: 1; background: #111; color: white; border: 1px solid #333; padding: 15px; border-radius: 6px; font-family: inherit; resize: none; line-height: 1.5; outline: none; }

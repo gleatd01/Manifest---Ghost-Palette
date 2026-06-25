@@ -171,7 +171,6 @@ app.put('/api/tasks/:id', ensureAuthenticatedOrApiKey, async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
-// PATCH v30.3: Secure Proxy for Google Drive Downloads
 app.get('/api/drive/download/:id', ensureAuthenticatedOrApiKey, async (req, res) => {
     if (!req.user.google_access_token) return res.status(403).json({ error: 'Google Auth missing.' });
     try {
@@ -250,4 +249,4 @@ app.post('/api/push/subscribe', ensureAuthenticatedOrApiKey, (req, res) => {
 
 app.use(express.static(path.join(__dirname, 'dist')));
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'dist', 'index.html')));
-server.listen(PORT, () => console.log(`[v30.3 Proxy] Server Running. Port: ${PORT}`));
+server.listen(PORT, () => console.log(`[v30.4 Handwriting] Server Running. Port: ${PORT}`));
