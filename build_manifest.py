@@ -850,7 +850,7 @@ files = {
 
 for filepath, content in files.items():
     # Safely escape for the string representation
-    escaped_content = content.replace('\\', '\\\\').replace('\"', '\\\"').replace('\n', '\\n')
+    escaped_content = content.replace('\\\\', '\\\\\\\\').replace('\"', '\\\"').replace('\\n', '\\\\n')
     build_py_content += f'    "{filepath}": "{escaped_content}",\n'
 
 build_py_content += """
@@ -864,4 +864,8 @@ with zipfile.ZipFile(zip_name, 'w', zipfile.ZIP_DEFLATED) as zf:
 print(f"✅ Successfully created {zip_name} in the current directory.")
 """
 
-build_py_content}
+# Fixed section: writes the content to an actual python file instead of throwing an error.
+with open("build.py", "w", encoding="utf-8") as f:
+    f.write(build_py_content)
+
+print("✅ Successfully generated build.py")
