@@ -42,12 +42,14 @@ jobs:
           # Generates time in YYYYMMDD-HHMM format in explicit UTC (e.g., 20260702-1630)
           TIMESTAMP=$(date -u +'%Y%m%d-%H%M')
           echo "TAG=$TIMESTAMP" >> $GITHUB_ENV
+          
+          # NEW: Directly replace 'local-dev' inside the Dockerfile with the live timestamp
+          sed -i "s/local-dev/$TIMESTAMP/g" Dockerfile
 
       # 7. Package the workspace into a custom release ZIP (using the timestamp name)
       - name: Create Clean Release ZIP
         run: |
-          # Zip everything, but explicitly exclude the requested files and directories
-          # Note: We use ${{ env.TAG }}.zip to dynamically name the output file
+          # Now when this runs, the zipped Dockerfile already has the code hardcoded!
           zip -r "${{ env.TAG }}.zip" . -x ".github/*" "build/*" "line_count.md" "build_manifest.py" "${{ env.TAG }}.zip"
 
       # 8. Create a GitHub Release and attach the custom ZIP
