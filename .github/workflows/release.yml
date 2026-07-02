@@ -35,25 +35,6 @@ jobs:
         run: |
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      # 4. Run your manifest builder script
-      - name: Run build_manifest.py
-        run: python build_manifest.py
-
-      # 5. Commit any changes made by build_manifest.py back to the repository
-      - name: Commit and push changes
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          
-          # Check if there are modified or untracked files
-          if [ -n "$(git status --porcelain)" ]; then
-            git add .
-            git commit -m "chore: auto-update manifest artifacts [skip ci]"
-            git push
-          else
-            echo "No changes to commit"
-          fi
-
       # 6. Generate a dynamic version tag using YYYYMMDD-HHMM format
       - name: Generate Tag Name
         id: tag_name
