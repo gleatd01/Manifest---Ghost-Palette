@@ -39,8 +39,8 @@ jobs:
       - name: Generate Tag Name
         id: tag_name
         run: |
-          # Generates time in YYYYMMDD-HHMM format (e.g., 20260702-1145)
-          TIMESTAMP=$(date +'%Y%m%d-%H%M')
+          # Generates time in YYYYMMDD-HHMM format in explicit UTC (e.g., 20260702-1630)
+          TIMESTAMP=$(date -u +'%Y%m%d-%H%M')
           echo "TAG=$TIMESTAMP" >> $GITHUB_ENV
 
       # 7. Package the workspace into a custom release ZIP (using the timestamp name)
@@ -67,3 +67,10 @@ jobs:
             ${{ env.TAG }}.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # 9. Build and Push Docker Image with compiled-in version tag
+      - name: Build and Push Docker Image
+        run: |
+          docker build \
+            --build-arg GITHUB_REF_NAME="${{ env.TAG }}" \
+            -t your-docker-registry/manifest-app:latest .
