@@ -79,14 +79,28 @@
     $: if (currentView === 'settings' && user) fetchApiKeys();
 
     onMount(async () => {
+        // ADD THIS SERVICE WORKER REGISTRATION BLOCK HERE:
+        if ('serviceWorker' in navigator) {
+            try {
+                const registration = await navigator.serviceWorker.register('/sw.js');
+                console.log("Service Worker registered successfully:", registration);
+                
+                navigator.serviceWorker.addEventListener('controllerchange', () => {
+                    console.log("New version detected. Reloading app...");
+                    window.location.reload();
+                });
+            } catch (err) {
+                console.error("Service worker registration failed:", err);
+            }
+        }
+
+        // KEEP ALL OF YOUR ORIGINAL CODE BELOW THIS LINE UNTOUCHED:
         await checkUser();
         if (user) {
-            await Promise.all([loadTasks(), loadUsers()]);
-            const socket = io();
-            socket.on('workspace-update', async () => await loadTasks());
-            initSpeechRecognition();
+            // ... your existing task loading, socket setups, fabric canvas initializations, etc.
         }
     });
+
 
     async function checkUser() { 
         const res = await fetch('/api/user'); 
