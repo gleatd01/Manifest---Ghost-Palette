@@ -1,9 +1,7 @@
 name: Update Line Count
 
 on:
-  push:
-    branches:
-      - main # Change to your default branch name if different
+  workflow_dispatch: # Enables the manual "Run workflow" button in GitHub
 
 permissions:
   contents: write
@@ -34,9 +32,8 @@ jobs:
           git config --local user.name "github-actions[bot]"
           git add line_count.md
           
-          # Only commit if the line count actually changed to prevent infinite loops
           if ! git diff --cached --quiet; then
-            git commit -m "chore: update line_count.md [skip ci]"
+            git commit -m "chore: update line_count.md"
             git push
           else
             echo "No changes to line count."
