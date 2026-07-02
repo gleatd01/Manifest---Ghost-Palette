@@ -4,9 +4,12 @@ on:
   push:
     branches:
       - main  # Target branch
-    paths:
-      - 'build_manifest.py' # CRITICAL: This ensures the workflow only triggers if build_manifest.py changes
-  workflow_dispatch: # Allows you to manually trigger the workflow from the Actions tab anytime
+    paths-ignore:
+      - '.github/**'
+      - 'build/**'
+      - 'line_count.md'
+      - 'build_manifest.py'
+  workflow_dispatch: # Allows manual trigger from the Actions tab
 
 jobs:
   build-and-release:
@@ -19,7 +22,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Fetches full history so git tags can be calculated correctly
+          fetch-depth: 0 # Fetches full history
 
       # 2. Set up Python environment
       - name: Set up Python
@@ -27,7 +30,7 @@ jobs:
         with:
           python-version: '3.x'
 
-      # 3. Install dependencies (if your script requires any)
+      # 3. Install dependencies
       - name: Install dependencies
         run: |
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
@@ -42,7 +45,7 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           
-          # Check if there are modified or untracked files resulting from the script execution
+          # Check if there are modified or untracked files
           if [ -n "$(git status --porcelain)" ]; then
             git add .
             git commit -m "chore: auto-update manifest artifacts [skip ci]"
@@ -51,26 +54,35 @@ jobs:
             echo "No changes to commit"
           fi
 
-      # 6. Generate a dynamic version tag (e.g., v1.0.build_number)
+      # 6. Generate a dynamic version tag using YYYYMMDD-HHMM format
       - name: Generate Tag Name
         id: tag_name
-        run: echo "TAG=v1.0.${{ github.run_number }}" >> $GITHUB_ENV
+        run: |
+          # Generates time in YYYYMMDD-HHMM format (e.g., 20260702-1145)
+          TIMESTAMP=$(date +'%Y%m%d-%H%M')
+          echo "TAG=$TIMESTAMP" >> $GITHUB_ENV
 
-      # 7. Create a GitHub Release
+      # 7. Package the workspace into a custom release ZIP (excluding files)
+      - name: Create Clean Release ZIP
+        run: |
+          # Zip everything, but explicitly exclude the requested files and directories
+          # Note: -r is recursive, -x dictates exclusions
+          zip -r release-package.zip . -x ".github/*" "build/*" "line_count.md" "build_manifest.py" "release-package.zip"
+
+      # 8. Create a GitHub Release and attach the custom ZIP
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG }}
           name: Release ${{ env.TAG }}
           body: |
-            Automated release triggered by updating `build_manifest.py` (Commit: ${{ github.sha }})
+            Automated release triggered by main branch push (Commit: ${{ github.sha }})
             
             ### Changes:
-            - Manifest tracking matrix re-built.
+            - Excluded files: `.github/*`, `build/*`, `line_count.md`, `build_manifest.py` are stripped from the attached `release-package.zip`.
           draft: false
           prerelease: false
-          # Optional: If build_manifest.py builds a specific distribution package (e.g., output.zip):
-          # files: |
-          #   path/to/your/output.zip
+          files: |
+            release-package.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
