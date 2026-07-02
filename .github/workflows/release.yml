@@ -62,12 +62,12 @@ jobs:
           TIMESTAMP=$(date +'%Y%m%d-%H%M')
           echo "TAG=$TIMESTAMP" >> $GITHUB_ENV
 
-      # 7. Package the workspace into a custom release ZIP (excluding files)
+      # 7. Package the workspace into a custom release ZIP (using the timestamp name)
       - name: Create Clean Release ZIP
         run: |
           # Zip everything, but explicitly exclude the requested files and directories
-          # Note: -r is recursive, -x dictates exclusions
-          zip -r release-package.zip . -x ".github/*" "build/*" "line_count.md" "build_manifest.py" "release-package.zip"
+          # Note: We use ${{ env.TAG }}.zip to dynamically name the output file
+          zip -r "${{ env.TAG }}.zip" . -x ".github/*" "build/*" "line_count.md" "build_manifest.py" "${{ env.TAG }}.zip"
 
       # 8. Create a GitHub Release and attach the custom ZIP
       - name: Create Release
@@ -76,13 +76,13 @@ jobs:
           tag_name: ${{ env.TAG }}
           name: Release ${{ env.TAG }}
           body: |
-            Automated release triggered by main branch push (Commit: ${{ github.sha }})
+            ## 📦 Production Download
+            Please download **`${{ env.TAG }}.zip`** below for the clean, production-ready version.
             
-            ### Changes:
-            - Excluded files: `.github/*`, `build/*`, `line_count.md`, `build_manifest.py` are stripped from the attached `release-package.zip`.
+            *(Note: Avoid downloading the automatic "Source Code" links below, as they contain development and internal configuration files).*
           draft: false
           prerelease: false
           files: |
-            release-package.zip
+            ${{ env.TAG }}.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
