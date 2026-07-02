@@ -1,0 +1,43 @@
+name: Update Line Count
+
+on:
+  push:
+    branches:
+      - main # Change to your default branch name if different
+
+permissions:
+  contents: write
+
+jobs:
+  count-lines:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install cloc
+        run: sudo apt-get update && sudo apt-get install -y cloc
+
+      - name: Generate Line Count Report
+        run: |
+          echo "# Repository Line Count" > line_count.md
+          echo "Generated on: $(date)" >> line_count.md
+          echo "" >> line_count.md
+          echo "\`\`\`text" >> line_count.md
+          cloc . --exclude-dir=.git >> line_count.md
+          echo "\`\`\`" >> line_count.md
+
+      - name: Commit and Push changes
+        run: |
+          git config --local user.email "github-actions[bot]@://github.com"
+          git config --local user.name "github-actions[bot]"
+          git add line_count.md
+          
+          # Only commit if the line count actually changed to prevent infinite loops
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: update line_count.md [skip ci]"
+            git push
+          else
+            echo "No changes to line count."
+          fi
