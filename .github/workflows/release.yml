@@ -76,4 +76,16 @@ jobs:
           docker build \
             --build-arg GITHUB_REF_NAME="${{ env.TAG }}" \
             -t your-docker-registry/manifest-app:latest .
+      # Add this as the very last step in your existing release.yml
+      - name: Force Push Release State to Prod Branch
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          
+          # Stage and commit the modified Dockerfile
+          git add Dockerfile
+          git commit -m "chore: sync release ${{ env.TAG }} to prod"
+          
+          # Force push directly to the remote prod branch
+          git push origin HEAD:prod --force
 
