@@ -1,0 +1,76 @@
+name: Automated Build and Release
+
+on:
+  push:
+    branches:
+      - main  # Target branch
+    paths:
+      - 'build_manifest.py' # CRITICAL: This ensures the workflow only triggers if build_manifest.py changes
+  workflow_dispatch: # Allows you to manually trigger the workflow from the Actions tab anytime
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Grants permission to push updated files and create releases
+
+    steps:
+      # 1. Check out the repository code
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetches full history so git tags can be calculated correctly
+
+      # 2. Set up Python environment
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      # 3. Install dependencies (if your script requires any)
+      - name: Install dependencies
+        run: |
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      # 4. Run your manifest builder script
+      - name: Run build_manifest.py
+        run: python build_manifest.py
+
+      # 5. Commit any changes made by build_manifest.py back to the repository
+      - name: Commit and push changes
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          
+          # Check if there are modified or untracked files resulting from the script execution
+          if [ -n "$(git status --porcelain)" ]; then
+            git add .
+            git commit -m "chore: auto-update manifest artifacts [skip ci]"
+            git push
+          else
+            echo "No changes to commit"
+          fi
+
+      # 6. Generate a dynamic version tag (e.g., v1.0.build_number)
+      - name: Generate Tag Name
+        id: tag_name
+        run: echo "TAG=v1.0.${{ github.run_number }}" >> $GITHUB_ENV
+
+      # 7. Create a GitHub Release
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          name: Release ${{ env.TAG }}
+          body: |
+            Automated release triggered by updating `build_manifest.py` (Commit: ${{ github.sha }})
+            
+            ### Changes:
+            - Manifest tracking matrix re-built.
+          draft: false
+          prerelease: false
+          # Optional: If build_manifest.py builds a specific distribution package (e.g., output.zip):
+          # files: |
+          #   path/to/your/output.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
