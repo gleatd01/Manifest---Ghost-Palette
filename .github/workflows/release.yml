@@ -74,3 +74,4 @@ jobs:
           docker build \
             --build-arg GITHUB_REF_NAME="${{ env.TAG }}" \
             -t your-docker-registry/manifest-app:latest .
+
