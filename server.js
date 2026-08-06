@@ -51,8 +51,12 @@ const swaggerOptions = {
         },
         servers: [
             {
-                url: 'http://localhost:3000',
-                description: 'Local server'
+                url: process.env.BASE_URL || `http://localhost:${PORT}`,
+                description: 'Configured server'
+            },
+            {
+                url: 'https://ghost.s1.buzzedtop.com',
+                description: 'Production server'
             }
         ],
         components: {
@@ -61,6 +65,11 @@ const swaggerOptions = {
                     type: 'apiKey',
                     in: 'header',
                     name: 'x-api-key'
+                },
+                CookieAuth: {
+                    type: 'apiKey',
+                    in: 'cookie',
+                    name: 'connect.sid'
                 }
             }
         }
@@ -191,6 +200,7 @@ app.delete('/api/settings/keys/:id', ensureAuthenticatedOrApiKey, async (req, re
  *     summary: Get all tasks for the authenticated user
  *     security:
  *       - ApiKeyAuth: []
+ *       - CookieAuth: []
  *     responses:
  *       200:
  *         description: A list of tasks.
@@ -225,12 +235,15 @@ app.get('/api/tasks', ensureAuthenticatedOrApiKey, async (req, res) => {
  *     summary: Create a new task
  *     security:
  *       - ApiKeyAuth: []
+ *       - CookieAuth: []
  *     requestBody:
  *       required: true
  *       content:
  *         application/json:
  *           schema:
  *             type: object
+ *             required:
+ *               - title
  *             properties:
  *               title:
  *                 type: string
@@ -240,12 +253,21 @@ app.get('/api/tasks', ensureAuthenticatedOrApiKey, async (req, res) => {
  *     responses:
  *       200:
  *         description: Task created.
+ *       400:
+ *         description: Bad request (e.g., missing title).
  *       401:
  *         description: Unauthorized
  */
 app.post('/api/tasks', ensureAuthenticatedOrApiKey, async (req, res) => {
-    try { const result = await pool.query('INSERT INTO tasks (user_id, title, due_date) VALUES ($1, $2, $3) RETURNING *', [req.user.id, req.body.title, req.body.dueDate || null]); io.emit('workspace-update'); res.json(result.rows[0]); } 
-    catch (err) { res.status(500).json({ error: 'Failed' }); }
+    try {
+        const title = req.body.title ? req.body.title.trim() : '';
+        if (!title) {
+            return res.status(400).json({ error: 'Title is required and cannot be empty.' });
+        }
+        const result = await pool.query('INSERT INTO tasks (user_id, title, due_date) VALUES ($1, $2, $3) RETURNING *', [req.user.id, title, req.body.dueDate || null]);
+        io.emit('workspace-update');
+        res.json(result.rows[0]);
+    } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
 app.put('/api/tasks/:id', ensureAuthenticatedOrApiKey, async (req, res) => {
