@@ -158,8 +158,11 @@
     let newTaskTitle = '';
     async function addTask() {
         if (!newTaskTitle.trim()) return;
-        await fetch('/api/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: newTaskTitle }) });
-        newTaskTitle = '';
+        const res = await fetch('/api/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: newTaskTitle }) });
+        if (res.ok) {
+            newTaskTitle = '';
+            loadTasks();
+        }
     }
 
     function isBlocked(task) {
@@ -949,7 +952,7 @@
 
     .task-input { display: flex; gap: 10px; margin-bottom: 20px; }
     .task-input input { flex: 1; padding: 10px; background: #1a1a1a; border: 1px solid #333; color: white; border-radius: 4px; }
-    .add-btn { background: #646cff; color: white; border: none; padding: 0 20px; font-size: 1.5rem; border-radius: 4px; }
+    .add-btn { background: #646cff; color: white; border: none; padding: 0 20px; font-size: 1.5rem; border-radius: 4px; cursor: pointer; }
     .task-list { list-style: none; padding: 0; margin: 0; }
     .task-item { display: flex; align-items: center; gap: 15px; background: #1a1a1a; padding: 15px; margin-bottom: 10px; border-radius: 6px; border: 1px solid #222; cursor: pointer; }
     .task-item.blocked { opacity: 0.5; }
