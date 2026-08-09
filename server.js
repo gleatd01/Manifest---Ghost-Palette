@@ -15,6 +15,8 @@ import Stripe from 'stripe';
 import { google } from 'googleapis';
 import multer from 'multer';
 import stream from 'stream';
+import swaggerUi from 'swagger-ui-express';
+import swaggerJsdoc from 'swagger-jsdoc';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -38,6 +40,45 @@ const pool = new Pool({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(session({ secret: process.env.SESSION_SECRET || 'ghost_palette_secret_key', resave: false, saveUninitialized: false }));
+
+const swaggerOptions = {
+    definition: {
+        openapi: '3.0.0',
+        info: {
+            title: 'Manifest Ghost Palette API',
+            version: '30.4.0',
+            description: 'API for task management and Microsoft Power Automate integration.',
+        },
+        servers: [
+            {
+                url: process.env.BASE_URL || `http://localhost:${PORT}`,
+                description: 'Configured server'
+            },
+            {
+                url: 'https://ghost.s1.buzzedtop.com',
+                description: 'Production server'
+            }
+        ],
+        components: {
+            securitySchemes: {
+                ApiKeyAuth: {
+                    type: 'apiKey',
+                    in: 'header',
+                    name: 'x-api-key'
+                },
+                CookieAuth: {
+                    type: 'apiKey',
+                    in: 'cookie',
+                    name: 'connect.sid'
+                }
+            }
+        }
+    },
+    apis: ['./server.js'],
+};
+
+const swaggerSpecs = swaggerJsdoc(swaggerOptions);
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpecs));
 app.use(passport.initialize());
 app.use(passport.session());
 
@@ -152,14 +193,81 @@ app.delete('/api/settings/keys/:id', ensureAuthenticatedOrApiKey, async (req, re
     catch (err) { res.status(500).json({ error: 'DB Error' }); }
 });
 
+/**
+ * @swagger
+ * /api/tasks:
+ *   get:
+ *     summary: Get all tasks for the authenticated user
+ *     security:
+ *       - ApiKeyAuth: []
+ *       - CookieAuth: []
+ *     responses:
+ *       200:
+ *         description: A list of tasks.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   id:
+ *                     type: integer
+ *                   title:
+ *                     type: string
+ *                   completed:
+ *                     type: boolean
+ *                   due_date:
+ *                     type: string
+ *                     format: date
+ *       401:
+ *         description: Unauthorized
+ */
 app.get('/api/tasks', ensureAuthenticatedOrApiKey, async (req, res) => {
     try { const result = await pool.query('SELECT * FROM tasks WHERE user_id = $1 ORDER BY created_at DESC', [req.user.id]); res.json(result.rows); } 
     catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
+/**
+ * @swagger
+ * /api/tasks:
+ *   post:
+ *     summary: Create a new task
+ *     security:
+ *       - ApiKeyAuth: []
+ *       - CookieAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - title
+ *             properties:
+ *               title:
+ *                 type: string
+ *               dueDate:
+ *                 type: string
+ *                 format: date
+ *     responses:
+ *       200:
+ *         description: Task created.
+ *       400:
+ *         description: Bad request (e.g., missing title).
+ *       401:
+ *         description: Unauthorized
+ */
 app.post('/api/tasks', ensureAuthenticatedOrApiKey, async (req, res) => {
-    try { const result = await pool.query('INSERT INTO tasks (user_id, title, due_date) VALUES ($1, $2, $3) RETURNING *', [req.user.id, req.body.title, req.body.dueDate || null]); io.emit('workspace-update'); res.json(result.rows[0]); } 
-    catch (err) { res.status(500).json({ error: 'Failed' }); }
+    try {
+        const title = req.body.title ? req.body.title.trim() : '';
+        if (!title) {
+            return res.status(400).json({ error: 'Title is required and cannot be empty.' });
+        }
+        const result = await pool.query('INSERT INTO tasks (user_id, title, due_date) VALUES ($1, $2, $3) RETURNING *', [req.user.id, title, req.body.dueDate || null]);
+        io.emit('workspace-update');
+        res.json(result.rows[0]);
+    } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
 app.put('/api/tasks/:id', ensureAuthenticatedOrApiKey, async (req, res) => {
