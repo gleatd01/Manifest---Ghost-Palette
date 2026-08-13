@@ -4,7 +4,7 @@
         user, allUsers, currentView, editingTask, isStudyMode,
         isHeaderCollapsed, loadTasks
     } from './stores/appStore.js';
-    
+
     import Header from './components/Header.svelte';
     import TaskEditModal from './components/TaskEditModal.svelte';
 
@@ -55,8 +55,8 @@
     /**
      * Checks if a user is authenticated on the backend.
      */
-    async function checkUser() { 
-        const res = await fetch('/api/user'); 
+    async function checkUser() {
+        const res = await fetch('/api/user');
         if (res.ok) {
             const userData = await res.json();
             user.set(userData);
@@ -115,7 +115,7 @@
     main { padding: 20px; display: flex; justify-content: center; }
     .container { width: 100%; max-width: 900px; background: #141414; padding: 25px; border-radius: 10px; border: 1px solid #222; position: relative; }
     .study-expanded { max-width: 1500px; height: 95vh; display: flex; flex-direction: column; overflow: hidden; }
-    
+
     .login-box { text-align: center; padding: 40px; background: #1a1a1a; border: 1px solid #333; border-radius: 8px; margin-top: 20px;}
     .google-btn { display: inline-block; background: #4285f4; color: white; text-decoration: none; padding: 10px 20px; border-radius: 4px; font-weight: 500; margin-top: 15px; }
 </style>

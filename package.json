@@ -4,12 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev:frontend": "vite",
-    "dev:backend": "nodemon server.js",
+    "dev:frontend": "cd frontend && vite",
+    "dev:backend": "nodemon backend/server.js",
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
-    "build": "vite build",
-    "preview": "vite preview",
-    "start": "node server.js"
+    "build": "cd frontend && vite build",
+    "preview": "cd frontend && vite preview",
+    "start": "node backend/server.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
