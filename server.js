@@ -85,22 +85,22 @@ app.use(passport.session());
 async function initDB() {
     try {
         await pool.query(`CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, username VARCHAR(100) UNIQUE, google_id VARCHAR(255) UNIQUE, plan_type VARCHAR(50) DEFAULT 'free', stripe_customer_id VARCHAR(255));`);
-        try { await pool.query(`ALTER TABLE users ADD COLUMN google_access_token TEXT`); } catch (e) {}
-        try { await pool.query(`ALTER TABLE users ADD COLUMN google_refresh_token TEXT`); } catch (e) {}
-        try { await pool.query(`ALTER TABLE users ADD COLUMN timezone VARCHAR(100) DEFAULT 'UTC'`); } catch (e) {}
+        await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS google_access_token TEXT`);
+        await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS google_refresh_token TEXT`);
+        await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS timezone VARCHAR(100) DEFAULT 'UTC'`);
 
         await pool.query(`CREATE TABLE IF NOT EXISTS tasks (id SERIAL PRIMARY KEY, user_id INTEGER REFERENCES users(id), title VARCHAR(255) NOT NULL, completed BOOLEAN DEFAULT false, due_date DATE, description TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`);
         
-        try { await pool.query(`ALTER TABLE tasks ADD COLUMN pdf_url VARCHAR(1024)`); } catch (e) {}
-        try { await pool.query(`ALTER TABLE tasks ADD COLUMN audio_url VARCHAR(1024)`); } catch (e) {}
-        try { await pool.query(`ALTER TABLE tasks ADD COLUMN transcription TEXT`); } catch (e) {}
-        try { await pool.query(`ALTER TABLE tasks ADD COLUMN drive_pdf_id VARCHAR(255)`); } catch (e) {}
-        try { await pool.query(`ALTER TABLE tasks ADD COLUMN drive_audio_id VARCHAR(255)`); } catch (e) {}
-        try { await pool.query(`ALTER TABLE tasks ADD COLUMN slide_tracking TEXT`); } catch (e) {}
-        try { await pool.query(`ALTER TABLE tasks ADD COLUMN predecessors JSONB DEFAULT '[]'`); } catch (e) {}
-        try { await pool.query(`ALTER TABLE tasks ADD COLUMN assignees JSONB DEFAULT '[]'`); } catch (e) {}
-        try { await pool.query(`ALTER TABLE tasks ADD COLUMN reminder_time VARCHAR(50)`); } catch (e) {}
-        try { await pool.query(`ALTER TABLE tasks ADD COLUMN reminder_frequency VARCHAR(50)`); } catch (e) {}
+        await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS pdf_url VARCHAR(1024)`);
+        await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS audio_url VARCHAR(1024)`);
+        await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS transcription TEXT`);
+        await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS drive_pdf_id VARCHAR(255)`);
+        await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS drive_audio_id VARCHAR(255)`);
+        await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS slide_tracking TEXT`);
+        await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS predecessors JSONB DEFAULT '[]'`);
+        await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS assignees JSONB DEFAULT '[]'`);
+        await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS reminder_time VARCHAR(50)`);
+        await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS reminder_frequency VARCHAR(50)`);
 
         await pool.query(`CREATE TABLE IF NOT EXISTS user_api_keys (id SERIAL PRIMARY KEY, user_id INTEGER REFERENCES users(id) ON DELETE CASCADE, key_name VARCHAR(100) NOT NULL, api_key_hash VARCHAR(64) UNIQUE NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`);
     } catch (err) { console.error("DB Error:", err); }
