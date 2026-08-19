@@ -9,8 +9,14 @@
 export function isBlocked(task, tasks) {
     if (!task.predecessors || task.predecessors.length === 0) return false;
     let parsed = typeof task.predecessors === 'string' ? JSON.parse(task.predecessors) : task.predecessors;
+
+    const taskMap = new Map();
+    for (let i = 0; i < tasks.length; i++) {
+        taskMap.set(tasks[i].id, tasks[i]);
+    }
+
     return parsed.some(pid => {
-        const p = tasks.find(t => t.id === pid);
+        const p = taskMap.get(pid);
         return p && !p.completed;
     });
 }

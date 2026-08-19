@@ -19,8 +19,8 @@ FROM node:18-alpine
 WORKDIR /app
 COPY package*.json ./
 RUN npm install --production 
-COPY server.js .
-COPY --from=build /app/dist ./dist
+COPY backend ./backend
+COPY --from=build /app/frontend/dist ./frontend/dist
 
 EXPOSE 3000
-CMD ["node", "server.js"]
+CMD ["node", "backend/server.js"]
