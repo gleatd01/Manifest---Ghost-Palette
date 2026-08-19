@@ -15,6 +15,8 @@ import Stripe from 'stripe';
 import { google } from 'googleapis';
 import multer from 'multer';
 import stream from 'stream';
+import fs from 'fs';
+import os from 'os';
 import swaggerUi from 'swagger-ui-express';
 import swaggerJsdoc from 'swagger-jsdoc';
 
@@ -26,7 +28,7 @@ const io = new Server(server);
 const PORT = process.env.PORT || 3000;
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_mock');
 
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } }); // 50MB limit
+const upload = multer({ dest: os.tmpdir(), limits: { fileSize: 50 * 1024 * 1024 } }); // 50MB limit
 
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
@@ -318,12 +320,11 @@ app.post('/api/drive/upload', ensureAuthenticatedOrApiKey, upload.single('file')
             folderId = folder.data.id;
         }
         
-        const bufferStream = new stream.PassThrough();
-        bufferStream.end(req.file.buffer);
+        const fileStream = fs.createReadStream(req.file.path);
 
         const response = await drive.files.create({
             requestBody: { name: req.file.originalname, parents: [folderId] }, 
-            media: { mimeType: req.file.mimetype, body: bufferStream },
+            media: { mimeType: req.file.mimetype, body: fileStream },
             fields: 'id, webViewLink'
         });
         
@@ -331,6 +332,12 @@ app.post('/api/drive/upload', ensureAuthenticatedOrApiKey, upload.single('file')
     } catch (err) {
         console.error("Drive API Error:", err);
         res.status(500).json({ error: 'Drive upload failed.' });
+    } finally {
+        if (req.file && req.file.path) {
+            fs.unlink(req.file.path, (err) => {
+                if (err) console.error("Error deleting temp file:", err);
+            });
+        }
     }
 });
 
