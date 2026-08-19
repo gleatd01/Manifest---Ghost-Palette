@@ -37,9 +37,14 @@ const pool = new Pool({
     port: process.env.POSTGRES_PORT || 5432,
 });
 
+if (!process.env.SESSION_SECRET) {
+    console.error('FATAL ERROR: SESSION_SECRET is not defined.');
+    process.exit(1);
+}
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(session({ secret: process.env.SESSION_SECRET || 'ghost_palette_secret_key', resave: false, saveUninitialized: false }));
+app.use(session({ secret: process.env.SESSION_SECRET, resave: false, saveUninitialized: false }));
 
 const swaggerOptions = {
     definition: {
