@@ -273,8 +273,11 @@ app.post('/api/tasks', ensureAuthenticatedOrApiKey, async (req, res) => {
 app.put('/api/tasks/:id', ensureAuthenticatedOrApiKey, async (req, res) => {
     const { title, description, completed, dueDate, predecessors, assignees, reminderTime, reminderFrequency, pdf_url, audio_url, transcription, drive_pdf_id, drive_audio_id, slide_tracking } = req.body;
     try {
-        await pool.query(`UPDATE tasks SET title=$1, description=$2, completed=$3, due_date=$4, pdf_url=$5, audio_url=$6, transcription=$7, drive_pdf_id=$8, drive_audio_id=$9, slide_tracking=$10, predecessors=$11, assignees=$12, reminder_time=$13, reminder_frequency=$14 WHERE id=$15`, 
-            [title, description || null, completed, dueDate || null, pdf_url || null, audio_url || null, transcription || null, drive_pdf_id || null, drive_audio_id || null, slide_tracking || null, JSON.stringify(predecessors || []), JSON.stringify(assignees || []), reminderTime || null, reminderFrequency || null, req.params.id]);
+        const result = await pool.query(`UPDATE tasks SET title=$1, description=$2, completed=$3, due_date=$4, pdf_url=$5, audio_url=$6, transcription=$7, drive_pdf_id=$8, drive_audio_id=$9, slide_tracking=$10, predecessors=$11, assignees=$12, reminder_time=$13, reminder_frequency=$14 WHERE id=$15 AND user_id=$16`,
+            [title, description || null, completed, dueDate || null, pdf_url || null, audio_url || null, transcription || null, drive_pdf_id || null, drive_audio_id || null, slide_tracking || null, JSON.stringify(predecessors || []), JSON.stringify(assignees || []), reminderTime || null, reminderFrequency || null, req.params.id, req.user.id]);
+        if (result.rowCount === 0) {
+            return res.status(404).json({ error: 'Task not found or unauthorized' });
+        }
         io.emit('workspace-update'); res.json({ success: true });
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
