@@ -55,6 +55,7 @@ export function formatTaskForEdit(task) {
     return {
         ...task,
         due_date: task.due_date ? task.due_date.split('T')[0] : '',
+        parent_id: task.parent_id || null,
         predecessors: typeof task.predecessors === 'string' ? JSON.parse(task.predecessors) : (task.predecessors || []),
         assignees: typeof task.assignees === 'string' ? JSON.parse(task.assignees) : (task.assignees || []),
         reminder_time: task.reminder_time || '',

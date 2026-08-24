@@ -4,6 +4,9 @@
 
     let newTaskTitle = '';
 
+    $: topLevelTasks = $activeTasks.filter(t => !t.parent_id);
+    $: getSubtasks = (parentId) => $tasks.filter(t => t.parent_id === parentId);
+
     /**
      * Adds a new task by calling the POST API.
      * On success, reloads the global task store.
@@ -41,6 +44,7 @@
             body: JSON.stringify({
                 ...task,
                 dueDate: task.due_date,
+                parentId: task.parent_id || null,
                 predecessors: p,
                 assignees: a,
                 reminderTime: task.reminder_time,
@@ -65,16 +69,37 @@
 
 <!-- Task List Display -->
 <ul class="task-list">
-    {#each $activeTasks as task}
+    {#each topLevelTasks as task}
         <li class="task-item {isBlocked(task, $tasks) ? 'blocked' : ''}">
             <input type="checkbox" disabled={isBlocked(task, $tasks)} checked={task.completed} on:change={() => toggleComplete(task)} />
             <div class="task-content" on:click={() => openEdit(task)}>
                 <span class="task-title">{task.title}</span>
-                {#if isBlocked(task, $tasks)}
-                    <span class="badge warning" title="Waiting on predecessor">🔒 Blocked</span>
-                {/if}
+                <div class="badges">
+                    {#if getSubtasks(task.id).length > 0}
+                        <span class="badge info">{getSubtasks(task.id).filter(s => s.completed).length}/{getSubtasks(task.id).length} Subtasks</span>
+                    {/if}
+                    {#if isBlocked(task, $tasks)}
+                        <span class="badge warning" title="Waiting on predecessor">🔒 Blocked</span>
+                    {/if}
+                </div>
             </div>
         </li>
+
+        {#each getSubtasks(task.id) as subtask}
+            <li class="task-item subtask-item {isBlocked(subtask, $tasks) ? 'blocked' : ''}">
+                <span class="subtask-indent-icon">└─</span>
+                <input type="checkbox" disabled={isBlocked(subtask, $tasks)} checked={subtask.completed} on:change={() => toggleComplete(subtask)} />
+                <div class="task-content" on:click={() => openEdit(subtask)}>
+                    <span class="task-title {subtask.completed ? 'completed' : ''}">{subtask.title}</span>
+                    <div class="badges">
+                        <span class="badge subtask-badge">Subtask</span>
+                        {#if isBlocked(subtask, $tasks)}
+                            <span class="badge warning" title="Waiting on predecessor">🔒 Blocked</span>
+                        {/if}
+                    </div>
+                </div>
+            </li>
+        {/each}
     {/each}
 </ul>
 
@@ -87,8 +112,15 @@
     .task-item { display: flex; align-items: center; gap: 15px; background: #1a1a1a; padding: 15px; margin-bottom: 10px; border-radius: 6px; border: 1px solid #222; cursor: pointer; }
     .task-item.blocked { opacity: 0.5; }
 
-    .badge { background: #555; color: #ddd; font-size: 0.75rem; padding: 3px 8px; border-radius: 12px; white-space: nowrap; margin-left:10px; }
+    .subtask-item { margin-left: 30px; background: #141414; border-left: 3px solid #646cff; border-top: 1px solid #222; margin-top: -5px; }
+    .subtask-indent-icon { color: #646cff; font-weight: bold; font-family: monospace; }
+    .completed { text-decoration: line-through; color: #777; }
+
+    .badges { display: flex; gap: 6px; align-items: center; }
+    .badge { background: #555; color: #ddd; font-size: 0.75rem; padding: 3px 8px; border-radius: 12px; white-space: nowrap; margin-left:0; }
     .badge.warning { background: #8a6a00; font-weight: bold; }
+    .badge.info { background: #2b4c7e; }
+    .badge.subtask-badge { background: #3b3b5c; color: #a5b4fc; }
 
     .task-content { flex: 1; display: flex; align-items: center; justify-content: space-between; }
 </style>
