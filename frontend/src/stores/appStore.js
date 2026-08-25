@@ -14,6 +14,11 @@ export const user = writable(null);
 export const allUsers = writable([]);
 
 /**
+ * topics: Holds the entire list of topics for the current user.
+ */
+export const topics = writable([]);
+
+/**
  * tasks: Holds the entire list of tasks for the current user.
  */
 export const tasks = writable([]);
@@ -72,5 +77,20 @@ export async function loadTasks() {
         }
     } catch (e) {
         console.error("Failed to load tasks", e);
+    }
+}
+
+/**
+ * Global helper function to reload topics from the API.
+ */
+export async function loadTopics() {
+    try {
+        const res = await fetch('/api/topics');
+        if (res.ok) {
+            const data = await res.json();
+            topics.set(data);
+        }
+    } catch (e) {
+        console.error("Failed to load topics", e);
     }
 }

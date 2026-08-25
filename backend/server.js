@@ -14,6 +14,7 @@ import { swaggerUi, swaggerSpecs } from './config/swagger.js';
 import authRoutes from './routes/auth.js';
 import usersRoutes from './routes/users.js';
 import tasksRoutes from './routes/tasks.js';
+import topicsRoutes from './routes/topics.js';
 import settingsRoutes from './routes/settings.js';
 import integrationsRoutes from './routes/integrations.js';
 
@@ -39,6 +40,7 @@ initDB();
 app.use('/auth', authRoutes);
 app.use('/api', usersRoutes);
 app.use('/api/tasks', tasksRoutes);
+app.use('/api/topics', topicsRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api', integrationsRoutes);
 

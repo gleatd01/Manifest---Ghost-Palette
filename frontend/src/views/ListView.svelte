@@ -1,8 +1,9 @@
 <script>
-    import { tasks, activeTasks, editingTask, loadTasks } from '../stores/appStore.js';
+    import { tasks, topics, activeTasks, editingTask, loadTasks } from '../stores/appStore.js';
     import { isBlocked, formatTaskForEdit } from '../lib/helpers.js';
 
     let newTaskTitle = '';
+    let selectedTopicFilter = null;
 
     /**
      * Adds a new task by calling the POST API.
@@ -63,13 +64,31 @@
     <button class="add-btn" on:click={addTask}>+</button>
 </div>
 
+<!-- Topic Filter -->
+<div class="topic-filter" style="margin-bottom: 15px; display: flex; align-items: center; gap: 10px;">
+    <label style="color:#aaa; font-size:0.9rem;">Filter by Topic:</label>
+    <select bind:value={selectedTopicFilter} style="background:#1a1a1a; border:1px solid #333; color:white; border-radius:4px; padding:5px;">
+        <option value={null}>All Topics</option>
+        {#each $topics as topic}
+            <option value={topic.id}>{topic.name}</option>
+        {/each}
+    </select>
+</div>
+
 <!-- Task List Display -->
 <ul class="task-list">
-    {#each $activeTasks as task}
-        <li class="task-item {isBlocked(task, $tasks) ? 'blocked' : ''}">
+    {#each $activeTasks.filter(t => selectedTopicFilter === null || t.topic_id === selectedTopicFilter) as task}
+        <li class="task-item {isBlocked(task, $tasks) ? 'blocked' : ''}" style={task.topic_id ? `border-left: 4px solid ${$topics.find(t => t.id === task.topic_id)?.color || '#333'};` : ''}>
             <input type="checkbox" disabled={isBlocked(task, $tasks)} checked={task.completed} on:change={() => toggleComplete(task)} />
             <div class="task-content" on:click={() => openEdit(task)}>
-                <span class="task-title">{task.title}</span>
+                <div style="display:flex; flex-direction:column;">
+                    <span class="task-title">{task.title}</span>
+                    {#if task.topic_id}
+                        <span style="font-size: 0.75rem; color: #888; margin-top: 2px;">
+                            {$topics.find(t => t.id === task.topic_id)?.name || ''}
+                        </span>
+                    {/if}
+                </div>
                 {#if isBlocked(task, $tasks)}
                     <span class="badge warning" title="Waiting on predecessor">🔒 Blocked</span>
                 {/if}

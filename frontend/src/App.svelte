@@ -49,6 +49,9 @@
         if ($user) {
             loadTasks();
             loadUsers();
+            import('./stores/appStore.js').then(module => {
+                if (module.loadTopics) module.loadTopics();
+            });
         }
     });
 

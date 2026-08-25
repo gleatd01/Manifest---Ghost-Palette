@@ -1,5 +1,5 @@
 <script>
-    import { editingTask, tasks, allUsers, isStudyMode, isHeaderCollapsed, loadTasks } from '../stores/appStore.js';
+    import { editingTask, tasks, topics, allUsers, isStudyMode, isHeaderCollapsed, loadTasks } from '../stores/appStore.js';
     import { getTaskName, getUserName } from '../lib/helpers.js';
 
     let showAssignees = false;
@@ -57,10 +57,19 @@
         <h2>Edit Task</h2>
         <input class="full-width" type="text" bind:value={$editingTask.title} style="padding:10px; background:#111; border:1px solid #333; color:white; margin-bottom:15px; border-radius:4px;"/>
 
-        <div class="modal-row" style="justify-content: space-between; margin-bottom: 10px;">
+        <div class="modal-row" style="justify-content: space-between; margin-bottom: 10px; display:flex;">
             <div style="display:flex; align-items:center; gap:10px;">
                 <label style="color:#aaa; font-size:0.9rem;">Due Date:</label>
                 <input type="date" bind:value={$editingTask.due_date} style="background:#111; border:1px solid #333; color:white; border-radius:4px; padding:5px;"/>
+            </div>
+            <div style="display:flex; align-items:center; gap:10px;">
+                <label style="color:#aaa; font-size:0.9rem;">Topic:</label>
+                <select bind:value={$editingTask.topic_id} style="background:#111; border:1px solid #333; color:white; border-radius:4px; padding:5px;">
+                    <option value={null}>No Topic</option>
+                    {#each $topics as t}
+                        <option value={t.id}>{t.name}</option>
+                    {/each}
+                </select>
             </div>
             <button class="btn secondary small-btn" on:click={() => showReminder = !showReminder} title="Set Recurring Reminder">
                 ⏰ {showReminder ? 'Remove Reminder' : 'Add Reminder'}

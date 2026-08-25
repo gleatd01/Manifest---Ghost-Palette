@@ -1,6 +1,7 @@
 <script>
     import { user } from '../stores/appStore.js';
     import { onMount } from 'svelte';
+    import TopicManager from '../components/TopicManager.svelte';
 
     let apiKeys = [];
     let newKeyName = '';
@@ -47,6 +48,8 @@
         <button class="btn primary" on:click={async () => { const res = await fetch('/api/checkout', {method:'POST'}); const d = await res.json(); if(d.url) window.location.href = d.url; }}>Upgrade to Pro Server Tier</button>
     {/if}
 </div>
+
+<TopicManager />
 
 <div class="settings-card" style="margin-top: 20px;">
     <h2>API Integrations (Power Automate)</h2>
