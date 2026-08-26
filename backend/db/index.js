@@ -32,6 +32,9 @@ export async function initDB() {
         try { await pool.query(`ALTER TABLE tasks ADD COLUMN reminder_time VARCHAR(50)`); } catch (e) {}
         try { await pool.query(`ALTER TABLE tasks ADD COLUMN reminder_frequency VARCHAR(50)`); } catch (e) {}
 
+        await pool.query(`CREATE TABLE IF NOT EXISTS topics (id SERIAL PRIMARY KEY, user_id INTEGER REFERENCES users(id), name VARCHAR(255) NOT NULL, color VARCHAR(50) DEFAULT '#646cff', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`);
+        try { await pool.query(`ALTER TABLE tasks ADD COLUMN topic_id INTEGER REFERENCES topics(id) ON DELETE SET NULL`); } catch (e) {}
+
         await pool.query(`CREATE TABLE IF NOT EXISTS user_api_keys (id SERIAL PRIMARY KEY, user_id INTEGER REFERENCES users(id) ON DELETE CASCADE, key_name VARCHAR(100) NOT NULL, api_key_hash VARCHAR(64) UNIQUE NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`);
         console.log("Database initialized.");
     } catch (err) { console.error("DB Error:", err); }
