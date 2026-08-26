@@ -98,7 +98,7 @@
 
     .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
     .cal-header-cell { text-align: center; font-weight: bold; color: #888; padding-bottom: 10px; }
-    .cal-cell { background: #1a1a1a; min-height: 80px; padding: 5px; border-radius: 4px; display: flex; flex-direction: column;}
+    .cal-cell { background: var(--modal-bg, #1a1a1a); min-height: 80px; padding: 5px; border-radius: 4px; display: flex; flex-direction: column;}
     .cal-cell.empty { background: transparent; }
     .day-num { text-align: right; color: #666; font-size: 0.8rem; margin-bottom: 5px;}
     .day-header { text-align: center; font-weight: bold; color: #888; font-size: 0.85rem; padding-bottom: 5px; border-bottom: 1px solid #333; margin-bottom: 5px; }

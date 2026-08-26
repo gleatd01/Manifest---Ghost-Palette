@@ -59,14 +59,14 @@
     .app-build-stamp {
         font-size: 0.6rem;
         font-family: monospace;
-        color: #555;
-        background: #1a1a1a;
+        color: var(--text-color, #555);
+        background: var(--modal-bg, #1a1a1a);
         padding: 2px 6px;
         border-radius: 4px;
         margin-left: 10px;
         font-weight: normal;
         letter-spacing: 0.5px;
-        border: 1px solid #2a2a2a;
+        border: 1px solid var(--border-color, #2a2a2a);
         user-select: none;
     }
     .header.collapsed .app-build-stamp {
