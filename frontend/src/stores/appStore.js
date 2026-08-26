@@ -9,9 +9,25 @@ import { writable, derived } from 'svelte/store';
 export const user = writable(null);
 
 /**
+ * theme: Global theme state ('dark' or 'light').
+ */
+export const theme = writable(localStorage.getItem('theme') || 'dark');
+theme.subscribe(val => {
+    localStorage.setItem('theme', val);
+    if (typeof document !== 'undefined') {
+        document.body.className = val;
+    }
+});
+
+/**
  * allUsers: A list of all available users in the system (used for task assignment).
  */
 export const allUsers = writable([]);
+
+/**
+ * topics: Holds the entire list of topics for the current user.
+ */
+export const topics = writable([]);
 
 /**
  * tasks: Holds the entire list of tasks for the current user.
@@ -72,5 +88,20 @@ export async function loadTasks() {
         }
     } catch (e) {
         console.error("Failed to load tasks", e);
+    }
+}
+
+/**
+ * Global helper function to reload topics from the API.
+ */
+export async function loadTopics() {
+    try {
+        const res = await fetch('/api/topics');
+        if (res.ok) {
+            const data = await res.json();
+            topics.set(data);
+        }
+    } catch (e) {
+        console.error("Failed to load topics", e);
     }
 }

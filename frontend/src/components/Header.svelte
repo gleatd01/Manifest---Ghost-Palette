@@ -1,5 +1,5 @@
 <script>
-    import { user, isHeaderCollapsed, currentView, isStudyMode } from '../stores/appStore.js';
+    import { user, isHeaderCollapsed, currentView, isStudyMode, theme } from '../stores/appStore.js';
 
     // Catch the build-arg value injected by Vite at compile time
     const appVersion = __APP_VERSION__;
@@ -19,6 +19,11 @@
             {/if}
             <span class="app-build-stamp">{appVersion}</span>
         </h1>
+    </div>
+    <div class="theme-toggle">
+        <button on:click={() => $theme = $theme === 'dark' ? 'light' : 'dark'} title="Toggle Theme" class="yin-yang-btn">
+            ☯
+        </button>
     </div>
     {#if $user}
         <div class="header-actions">
@@ -54,14 +59,14 @@
     .app-build-stamp {
         font-size: 0.6rem;
         font-family: monospace;
-        color: #555;
-        background: #1a1a1a;
+        color: var(--text-color, #555);
+        background: var(--modal-bg, #1a1a1a);
         padding: 2px 6px;
         border-radius: 4px;
         margin-left: 10px;
         font-weight: normal;
         letter-spacing: 0.5px;
-        border: 1px solid #2a2a2a;
+        border: 1px solid var(--border-color, #2a2a2a);
         user-select: none;
     }
     .header.collapsed .app-build-stamp {
@@ -76,6 +81,10 @@
 
     .logout-btn { background: #333; color: #ccc; border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; }
     .btn { padding: 10px 15px; border-radius: 6px; border: none; font-weight: bold; cursor: pointer; transition: 0.2s; }
-    .btn.secondary { background: #333; color: white; }
-    .btn.secondary:hover { background: #444; }
+    .btn.secondary { background: var(--btn-secondary-bg, #333); color: var(--btn-secondary-text, white); }
+    .btn.secondary:hover { background: var(--btn-secondary-hover-bg, #444); }
+
+    .theme-toggle { margin-right: auto; margin-left: 20px;}
+    .yin-yang-btn { background: none; border: none; font-size: 1.5rem; cursor: pointer; transition: transform 0.3s ease; color: var(--text-color, #fff);}
+    .yin-yang-btn:hover { transform: rotate(180deg); }
 </style>

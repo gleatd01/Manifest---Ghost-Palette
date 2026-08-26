@@ -1,5 +1,5 @@
 <script>
-    import { tasks, activeTasks, editingTask } from '../stores/appStore.js';
+    import { tasks, activeTasks, editingTask, topics } from '../stores/appStore.js';
     import { isBlocked, formatTaskForEdit } from '../lib/helpers.js';
 
     let calendarMode = 'month';
@@ -69,7 +69,7 @@
                 <div class="cal-cell">
                     <div class="day-num">{i + 1}</div>
                     {#each $activeTasks.filter(t => t.due_date && new Date(t.due_date).getDate() === (i+1) && new Date(t.due_date).getMonth() === currentMonth) as t}
-                        <div class="mini-task {isBlocked(t, $tasks) ? 'blocked' : ''}" on:click={() => openEdit(t)}>{t.title}</div>
+                        <div class="mini-task {isBlocked(t, $tasks) ? 'blocked' : ''}" on:click={() => openEdit(t)} style={t.topic_id ? `border-left: 3px solid ${$topics.find(top => top.id === t.topic_id)?.color || 'transparent'};` : ''}>{t.title}</div>
                     {/each}
                 </div>
             {/each}
@@ -80,7 +80,7 @@
                 <div class="cal-cell">
                     <div class="day-header">{wd.dateObj.toLocaleString('default', {weekday: 'short'})} {wd.dayNum}</div>
                     {#each wd.tasks as t}
-                        <div class="mini-task {isBlocked(t, $tasks) ? 'blocked' : ''}" on:click={() => openEdit(t)}>{t.title}</div>
+                        <div class="mini-task {isBlocked(t, $tasks) ? 'blocked' : ''}" on:click={() => openEdit(t)} style={t.topic_id ? `border-left: 3px solid ${$topics.find(top => top.id === t.topic_id)?.color || 'transparent'};` : ''}>{t.title}</div>
                     {/each}
                 </div>
             {/each}
@@ -98,7 +98,7 @@
 
     .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
     .cal-header-cell { text-align: center; font-weight: bold; color: #888; padding-bottom: 10px; }
-    .cal-cell { background: #1a1a1a; min-height: 80px; padding: 5px; border-radius: 4px; display: flex; flex-direction: column;}
+    .cal-cell { background: var(--modal-bg, #1a1a1a); min-height: 80px; padding: 5px; border-radius: 4px; display: flex; flex-direction: column;}
     .cal-cell.empty { background: transparent; }
     .day-num { text-align: right; color: #666; font-size: 0.8rem; margin-bottom: 5px;}
     .day-header { text-align: center; font-weight: bold; color: #888; font-size: 0.85rem; padding-bottom: 5px; border-bottom: 1px solid #333; margin-bottom: 5px; }

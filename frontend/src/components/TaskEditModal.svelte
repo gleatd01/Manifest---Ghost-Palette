@@ -1,6 +1,7 @@
 <script>
-    import { editingTask, tasks, allUsers, isStudyMode, isHeaderCollapsed, loadTasks } from '../stores/appStore.js';
+    import { editingTask, tasks, topics, allUsers, isStudyMode, isHeaderCollapsed, loadTasks } from '../stores/appStore.js';
     import { getTaskName, getUserName } from '../lib/helpers.js';
+    import CreateTopicModal from './CreateTopicModal.svelte';
 
     let showAssignees = false;
     let showDependencies = false;
@@ -140,17 +141,46 @@
         isHeaderCollapsed.set(true);
         // We do not close the editor state completely, because StudyMode relies on $editingTask.
     }
+
+    let showCreateTopicModal = false;
+
+    function handleTopicChange() {
+        if ($editingTask.topic_id === 'NEW_TOPIC') {
+            $editingTask.topic_id = null;
+            showCreateTopicModal = true;
+        }
+    }
+
+    function handleTopicSaved(event) {
+        const topic = event.detail.topic;
+        $editingTask.topic_id = topic.id;
+        showCreateTopicModal = false;
+    }
 </script>
+
+{#if showCreateTopicModal}
+    <CreateTopicModal on:close={() => showCreateTopicModal = false} on:save={handleTopicSaved} />
+{/if}
 
 <div class="modal-overlay">
     <div class="modal">
         <h2>Edit Task</h2>
-        <input class="full-width" type="text" bind:value={$editingTask.title} style="padding:10px; background:#111; border:1px solid #333; color:white; margin-bottom:15px; border-radius:4px;"/>
+        <input class="full-width" type="text" bind:value={$editingTask.title} style="padding:10px; background:var(--input-bg, #111); border:1px solid var(--border-color, #333); color:var(--text-color, white); margin-bottom:15px; border-radius:4px;"/>
 
-        <div class="modal-row" style="justify-content: space-between; margin-bottom: 10px;">
+        <div class="modal-row" style="justify-content: space-between; margin-bottom: 10px; display:flex;">
             <div style="display:flex; align-items:center; gap:10px;">
-                <label style="color:#aaa; font-size:0.9rem;">Due Date:</label>
-                <input type="date" bind:value={$editingTask.due_date} style="background:#111; border:1px solid #333; color:white; border-radius:4px; padding:5px;"/>
+                <label style="color:var(--text-color, #aaa); font-size:0.9rem;">Due Date:</label>
+                <input type="date" bind:value={$editingTask.due_date} style="background:var(--input-bg, #111); border:1px solid var(--border-color, #333); color:var(--text-color, white); border-radius:4px; padding:5px;"/>
+            </div>
+            <div style="display:flex; align-items:center; gap:10px;">
+                <label style="color:var(--text-color, #aaa); font-size:0.9rem;">Topic:</label>
+                <select bind:value={$editingTask.topic_id} on:change={handleTopicChange} style="background:var(--input-bg, #111); border:1px solid var(--border-color, #333); color:var(--text-color, white); border-radius:4px; padding:5px;">
+                    <option value={null}>No Topic</option>
+                    {#each $topics as t}
+                        <option value={t.id}>{t.name}</option>
+                    {/each}
+                    <option value="NEW_TOPIC">+ Add New Topic...</option>
+                </select>
             </div>
             <button class="btn secondary small-btn" on:click={() => showReminder = !showReminder} title="Set Recurring Reminder">
                 ⏰ {showReminder ? 'Remove Reminder' : 'Add Reminder'}
@@ -161,7 +191,7 @@
             <div class="reminder-box">
                 <label>Remind me at:</label>
                 <input type="time" bind:value={$editingTask.reminder_time} />
-                <select bind:value={$editingTask.reminder_frequency} style="margin-left: 10px; width: auto; background:#111; border:1px solid #333; color:white; padding:5px;">
+                <select bind:value={$editingTask.reminder_frequency} style="margin-left: 10px; width: auto; background:var(--input-bg, #111); border:1px solid var(--border-color, #333); color:var(--text-color, white); padding:5px;">
                     <option value="daily">Every Day</option>
                     <option value="weekdays">Every Weekday (Mon-Fri)</option>
                     <option value="weekends">Every Weekend (Sat-Sun)</option>
@@ -188,7 +218,7 @@
                         {/each}
                     </div>
                     <div class="add-dep">
-                        <select bind:value={selectedAssignee} style="flex:1; background:#111; border:1px solid #333; color:white; padding:5px;">
+                        <select bind:value={selectedAssignee} style="flex:1; background:var(--input-bg, #111); border:1px solid var(--border-color, #333); color:var(--text-color, white); padding:5px;">
                             <option value={null}>-- Select user to share with --</option>
                             {#each $allUsers.filter(u => u.id !== $editingTask.user_id && !$editingTask.assignees.includes(u.id)) as u}
                                 <option value={u.id}>{u.username}</option>
@@ -264,7 +294,7 @@
                         {/each}
                     </div>
                     <div class="add-dep">
-                        <select bind:value={selectedDep} style="flex:1; background:#111; border:1px solid #333; color:white; padding:5px;">
+                        <select bind:value={selectedDep} style="flex:1; background:var(--input-bg, #111); border:1px solid var(--border-color, #333); color:var(--text-color, white); padding:5px;">
                             <option value={null}>-- Select a prerequisite task --</option>
                             {#each $tasks.filter(t => t.id !== $editingTask.id && !$editingTask.predecessors.includes(t.id)) as t}
                                 <option value={t.id}>{t.title} {t.completed ? '(Done)' : ''}</option>
@@ -290,16 +320,16 @@
 
 <style>
     .modal-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 100; overflow-y: auto;}
-    .modal { background: #1a1a1a; padding: 25px; border-radius: 8px; width: 450px; border: 1px solid #333; margin: auto;}
+    .modal { background: var(--modal-bg, #1a1a1a); padding: 25px; border-radius: 8px; width: 450px; border: 1px solid var(--border-color, #333); margin: auto; transition: background 0.3s ease;}
     .study-launch-banner { background: #1f1f3a; padding: 15px; border-radius: 6px; margin: 20px 0; border: 1px solid #2a2a5a; text-align: center; }
     .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
 
     .btn { padding: 10px 15px; border-radius: 6px; border: none; font-weight: bold; cursor: pointer; transition: 0.2s; }
     .btn.primary { background: #646cff; color: white; }
-    .btn.secondary { background: #333; color: white; }
+    .btn.secondary { background: var(--btn-secondary-bg, #333); color: var(--btn-secondary-text, white); }
     .full-width { width: 100%; box-sizing: border-box; }
 
-    .modal-section { background: #111; padding: 12px; border-radius: 6px; border: 1px solid #222; margin-top: 10px;}
+    .modal-section { background: var(--input-bg, #111); padding: 12px; border-radius: 6px; border: 1px solid var(--border-color, #222); margin-top: 10px; transition: background 0.3s ease;}
     .section-toggle { width: 100%; display: flex; justify-content: space-between; align-items: center; background: transparent; border: none; color: #aaa; font-size: 0.9rem; font-weight: bold; padding: 0; cursor: pointer;}
     .section-content { margin-top: 10px; border-top: 1px solid #222; padding-top: 10px; display: flex; flex-direction: column; gap: 10px; }
     .chevron { font-size: 0.8rem; color: #666; }
