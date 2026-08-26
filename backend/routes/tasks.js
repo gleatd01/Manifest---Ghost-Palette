@@ -64,6 +64,8 @@ router.get('/', ensureAuthenticatedOrApiKey, async (req, res) => {
  *               dueDate:
  *                 type: string
  *                 format: date
+ *               topic_id:
+ *                 type: integer
  *     responses:
  *       200:
  *         description: Task created.
@@ -78,7 +80,7 @@ router.post('/', ensureAuthenticatedOrApiKey, async (req, res) => {
         if (!title) {
             return res.status(400).json({ error: 'Title is required and cannot be empty.' });
         }
-        const result = await pool.query('INSERT INTO tasks (user_id, title, due_date) VALUES ($1, $2, $3) RETURNING *', [req.user.id, title, req.body.dueDate || null]);
+        const result = await pool.query('INSERT INTO tasks (user_id, title, due_date, topic_id) VALUES ($1, $2, $3, $4) RETURNING *', [req.user.id, title, req.body.dueDate || null, req.body.topic_id || null]);
         req.app.get('io').emit('workspace-update');
         res.json(result.rows[0]);
     } catch (err) { res.status(500).json({ error: 'Failed' }); }

@@ -3,6 +3,7 @@
     import { isBlocked, formatTaskForEdit } from '../lib/helpers.js';
 
     let newTaskTitle = '';
+    let newTaskTopicId = null;
     let selectedTopicFilter = null;
 
     /**
@@ -14,10 +15,11 @@
         const res = await fetch('/api/tasks', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ title: newTaskTitle })
+            body: JSON.stringify({ title: newTaskTitle, topic_id: newTaskTopicId })
         });
         if (res.ok) {
             newTaskTitle = '';
+            newTaskTopicId = null;
             loadTasks();
         }
     }
@@ -61,6 +63,12 @@
 <!-- Task Input Area -->
 <div class="task-input">
     <input type="text" bind:value={newTaskTitle} placeholder="New task..." />
+    <select bind:value={newTaskTopicId} style="background:#1a1a1a; border:1px solid #333; color:white; border-radius:4px; padding:5px; max-width: 150px;">
+        <option value={null}>No Topic</option>
+        {#each $topics as topic}
+            <option value={topic.id}>{topic.name}</option>
+        {/each}
+    </select>
     <button class="add-btn" on:click={addTask}>+</button>
 </div>
 
