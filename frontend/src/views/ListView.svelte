@@ -85,21 +85,26 @@
             </div>
         </li>
 
-        {#each getSubtasks(task.id) as subtask}
-            <li class="task-item subtask-item {isBlocked(subtask, $tasks) ? 'blocked' : ''}">
-                <span class="subtask-indent-icon">└─</span>
-                <input type="checkbox" disabled={isBlocked(subtask, $tasks)} checked={subtask.completed} on:change={() => toggleComplete(subtask)} />
-                <div class="task-content" on:click={() => openEdit(subtask)}>
-                    <span class="task-title {subtask.completed ? 'completed' : ''}">{subtask.title}</span>
-                    <div class="badges">
-                        <span class="badge subtask-badge">Subtask</span>
-                        {#if isBlocked(subtask, $tasks)}
-                            <span class="badge warning" title="Waiting on predecessor">🔒 Blocked</span>
-                        {/if}
-                    </div>
-                </div>
+        {#if getSubtasks(task.id).length > 0}
+            <li class="subtask-container">
+                <ul class="subtask-checklist">
+                    {#each getSubtasks(task.id) as subtask}
+                        <li class="subtask-item {isBlocked(subtask, $tasks) ? 'blocked' : ''}">
+                            <input type="checkbox" disabled={isBlocked(subtask, $tasks)} checked={subtask.completed} on:change={() => toggleComplete(subtask)} />
+                            <div class="task-content" on:click={() => openEdit(subtask)}>
+                                <span class="task-title {subtask.completed ? 'completed' : ''}">{subtask.title}</span>
+                                <div class="badges">
+                                    <span class="badge subtask-badge">Subtask</span>
+                                    {#if isBlocked(subtask, $tasks)}
+                                        <span class="badge warning" title="Waiting on predecessor">🔒 Blocked</span>
+                                    {/if}
+                                </div>
+                            </div>
+                        </li>
+                    {/each}
+                </ul>
             </li>
-        {/each}
+        {/if}
     {/each}
 </ul>
 
@@ -112,8 +117,9 @@
     .task-item { display: flex; align-items: center; gap: 15px; background: #1a1a1a; padding: 15px; margin-bottom: 10px; border-radius: 6px; border: 1px solid #222; cursor: pointer; }
     .task-item.blocked { opacity: 0.5; }
 
-    .subtask-item { margin-left: 30px; background: #141414; border-left: 3px solid #646cff; border-top: 1px solid #222; margin-top: -5px; }
-    .subtask-indent-icon { color: #646cff; font-weight: bold; font-family: monospace; }
+    .subtask-container { list-style: none; padding: 0; margin: -5px 0 10px 25px; border-left: 2px solid #333; }
+    .subtask-checklist { list-style: none; padding: 0 0 0 15px; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+    .subtask-item { display: flex; align-items: center; gap: 12px; background: #141414; padding: 10px 12px; border-radius: 4px; border: 1px solid #222; cursor: pointer; }
     .completed { text-decoration: line-through; color: #777; }
 
     .badges { display: flex; gap: 6px; align-items: center; }
