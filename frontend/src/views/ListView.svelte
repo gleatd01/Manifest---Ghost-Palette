@@ -1,6 +1,6 @@
 <script>
     import { tasks, topics, activeTasks, editingTask, loadTasks } from '../stores/appStore.js';
-    import { isBlocked, formatTaskForEdit } from '../lib/helpers.js';
+    import { isBlocked, formatTaskForEdit, computeHierarchy } from '../lib/helpers.js';
     import CreateTopicModal from '../components/CreateTopicModal.svelte';
 
     let newTaskTitle = '';
@@ -105,8 +105,8 @@
 
 <!-- Task List Display -->
 <ul class="task-list">
-    {#each $activeTasks.filter(t => selectedTopicFilter === null || t.topic_id === selectedTopicFilter) as task}
-        <li class="task-item {isBlocked(task, $tasks) ? 'blocked' : ''}" style={task.topic_id ? `border-left: 4px solid ${$topics.find(t => t.id === task.topic_id)?.color || '#333'};` : ''}>
+    {#each computeHierarchy($activeTasks).filter(t => selectedTopicFilter === null || t.topic_id === selectedTopicFilter) as task}
+        <li class="task-item {isBlocked(task, $tasks) ? 'blocked' : ''}" style="{task.topic_id ? `border-left: 4px solid ${$topics.find(t => t.id === task.topic_id)?.color || '#333'};` : ''} margin-left: {task._level * 20}px;">
             <input type="checkbox" disabled={isBlocked(task, $tasks)} checked={task.completed} on:change={() => toggleComplete(task)} />
             <div class="task-content" on:click={() => openEdit(task)}>
                 <div style="display:flex; flex-direction:column;">

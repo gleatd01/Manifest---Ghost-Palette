@@ -34,6 +34,7 @@ export async function initDB() {
         try { await pool.query(`ALTER TABLE tasks ADD COLUMN assignees JSONB DEFAULT '[]'`); } catch (e) {}
         try { await pool.query(`ALTER TABLE tasks ADD COLUMN reminder_time VARCHAR(50)`); } catch (e) {}
         try { await pool.query(`ALTER TABLE tasks ADD COLUMN reminder_frequency VARCHAR(50)`); } catch (e) {}
+        try { await pool.query(`ALTER TABLE tasks ADD COLUMN parent_id INTEGER REFERENCES tasks(id) ON DELETE CASCADE`); } catch (e) {}
 
         await pool.query(`CREATE TABLE IF NOT EXISTS user_api_keys (id SERIAL PRIMARY KEY, user_id INTEGER REFERENCES users(id) ON DELETE CASCADE, key_name VARCHAR(100) NOT NULL, api_key_hash VARCHAR(64) UNIQUE NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`);
         console.log("Database initialized.");

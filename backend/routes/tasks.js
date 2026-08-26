@@ -80,17 +80,17 @@ router.post('/', ensureAuthenticatedOrApiKey, async (req, res) => {
         if (!title) {
             return res.status(400).json({ error: 'Title is required and cannot be empty.' });
         }
-        const result = await pool.query('INSERT INTO tasks (user_id, title, due_date, topic_id) VALUES ($1, $2, $3, $4) RETURNING *', [req.user.id, title, req.body.dueDate || null, req.body.topic_id || null]);
+        const result = await pool.query('INSERT INTO tasks (user_id, title, due_date, topic_id, parent_id) VALUES ($1, $2, $3, $4, $5) RETURNING *', [req.user.id, title, req.body.dueDate || null, req.body.topic_id || null, req.body.parent_id || null]);
         req.app.get('io').emit('workspace-update');
         res.json(result.rows[0]);
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
 router.put('/:id', ensureAuthenticatedOrApiKey, async (req, res) => {
-    const { title, description, completed, dueDate, predecessors, assignees, reminderTime, reminderFrequency, pdf_url, audio_url, transcription, drive_pdf_id, drive_audio_id, slide_tracking, topic_id } = req.body;
+    const { title, description, completed, dueDate, predecessors, assignees, reminderTime, reminderFrequency, pdf_url, audio_url, transcription, drive_pdf_id, drive_audio_id, slide_tracking, topic_id, parent_id } = req.body;
     try {
-        await pool.query(`UPDATE tasks SET title=$1, description=$2, completed=$3, due_date=$4, pdf_url=$5, audio_url=$6, transcription=$7, drive_pdf_id=$8, drive_audio_id=$9, slide_tracking=$10, predecessors=$11, assignees=$12, reminder_time=$13, reminder_frequency=$14, topic_id=$15 WHERE id=$16`,
-            [title, description || null, completed, dueDate || null, pdf_url || null, audio_url || null, transcription || null, drive_pdf_id || null, drive_audio_id || null, slide_tracking || null, JSON.stringify(predecessors || []), JSON.stringify(assignees || []), reminderTime || null, reminderFrequency || null, topic_id || null, req.params.id]);
+        await pool.query(`UPDATE tasks SET title=$1, description=$2, completed=$3, due_date=$4, pdf_url=$5, audio_url=$6, transcription=$7, drive_pdf_id=$8, drive_audio_id=$9, slide_tracking=$10, predecessors=$11, assignees=$12, reminder_time=$13, reminder_frequency=$14, topic_id=$15, parent_id=$16 WHERE id=$17`,
+            [title, description || null, completed, dueDate || null, pdf_url || null, audio_url || null, transcription || null, drive_pdf_id || null, drive_audio_id || null, slide_tracking || null, JSON.stringify(predecessors || []), JSON.stringify(assignees || []), reminderTime || null, reminderFrequency || null, topic_id || null, parent_id || null, req.params.id]);
         req.app.get('io').emit('workspace-update'); res.json({ success: true });
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
