@@ -85,6 +85,9 @@
             allUsers.set(await res.json());
         }
     }
+
+    // Catch the build-arg value injected by Vite at compile time
+    const appVersion = __APP_VERSION__;
 </script>
 
 <main>
@@ -110,6 +113,10 @@
             <TaskEditModal />
         {/if}
 
+    </div>
+
+    <div class="version-info">
+        Version: {appVersion}
     </div>
 </main>
 
@@ -142,6 +149,14 @@
     main { padding: 20px; display: flex; justify-content: center; }
     .container { width: 100%; max-width: 900px; background: var(--container-bg); padding: 25px; border-radius: 10px; border: 1px solid var(--border-color); position: relative; transition: background 0.3s ease;}
     .study-expanded { max-width: 1500px; height: 95vh; display: flex; flex-direction: column; overflow: hidden; }
+
+    .version-info {
+        text-align: center;
+        font-size: 0.7rem;
+        color: var(--text-color);
+        opacity: 0.5;
+        margin-top: 20px;
+    }
 
     .login-box { text-align: center; padding: 40px; background: var(--modal-bg); border: 1px solid var(--border-color); border-radius: 8px; margin-top: 20px;}
     .google-btn { display: inline-block; background: #4285f4; color: white; text-decoration: none; padding: 10px 20px; border-radius: 4px; font-weight: 500; margin-top: 15px; }

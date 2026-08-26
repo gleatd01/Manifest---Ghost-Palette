@@ -58,6 +58,48 @@ export function formatTaskForEdit(task) {
         predecessors: typeof task.predecessors === 'string' ? JSON.parse(task.predecessors) : (task.predecessors || []),
         assignees: typeof task.assignees === 'string' ? JSON.parse(task.assignees) : (task.assignees || []),
         reminder_time: task.reminder_time || '',
-        reminder_frequency: task.reminder_frequency || 'daily'
+        reminder_frequency: task.reminder_frequency || 'daily',
+        parent_id: task.parent_id || null
     };
+}
+
+/**
+ * Computes a hierarchical array of tasks, handling infinite nesting.
+ * Assigns a `_level` property to each task for indentation.
+ *
+ * @param {Array} tasks The flat array of tasks.
+ * @returns {Array} A new array of tasks ordered hierarchically.
+ */
+export function computeHierarchy(tasks) {
+    const taskMap = new Map();
+    const roots = [];
+
+    // Initialize map
+    tasks.forEach(t => {
+        taskMap.set(t.id, { ...t, _children: [], _level: 0 });
+    });
+
+    // Build tree
+    tasks.forEach(t => {
+        const node = taskMap.get(t.id);
+        if (t.parent_id && taskMap.has(t.parent_id)) {
+            taskMap.get(t.parent_id)._children.push(node);
+        } else {
+            roots.push(node);
+        }
+    });
+
+    const result = [];
+
+    // Flatten tree iteratively or recursively, adding levels
+    function traverse(node, level) {
+        node._level = level;
+        result.push(node);
+        // Sort children if needed, here we just keep them in order of appearance
+        node._children.forEach(child => traverse(child, level + 1));
+    }
+
+    roots.forEach(root => traverse(root, 0));
+
+    return result;
 }

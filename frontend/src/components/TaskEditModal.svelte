@@ -53,6 +53,46 @@
     }
 
     let showCreateTopicModal = false;
+    let newSubtaskTitle = '';
+
+    async function addSubtask() {
+        if (!newSubtaskTitle.trim()) return;
+        const res = await fetch('/api/tasks', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                title: newSubtaskTitle,
+                parent_id: $editingTask.id,
+                topic_id: $editingTask.topic_id
+            })
+        });
+        if (res.ok) {
+            newSubtaskTitle = '';
+            loadTasks();
+        }
+    }
+
+    async function toggleSubtaskComplete(task) {
+        let p = typeof task.predecessors === 'string' ? JSON.parse(task.predecessors) : (task.predecessors || []);
+        let a = typeof task.assignees === 'string' ? JSON.parse(task.assignees) : (task.assignees || []);
+
+        const res = await fetch(`/api/tasks/${task.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                ...task,
+                completed: !task.completed,
+                dueDate: task.due_date,
+                predecessors: p,
+                assignees: a,
+                reminderTime: task.reminder_time,
+                reminderFrequency: task.reminder_frequency
+            })
+        });
+        if (res.ok) {
+            loadTasks();
+        }
+    }
 
     function handleTopicChange() {
         if ($editingTask.topic_id === 'NEW_TOPIC') {
@@ -169,6 +209,27 @@
                     </div>
                 </div>
             {/if}
+        </div>
+
+        <div class="modal-section" style="margin-bottom: 15px;">
+            <div class="section-content" style="border-top: none; margin-top: 0; padding-top: 0;">
+                <label style="color:var(--text-color, #aaa); font-size:0.9rem; font-weight:bold; display:block; margin-bottom:10px;">Subtasks</label>
+                <div class="subtask-list" style="margin-bottom: 10px; max-height: 150px; overflow-y: auto;">
+                    {#each $tasks.filter(t => t.parent_id === $editingTask.id) as subtask}
+                        <div style="display:flex; align-items:center; gap:10px; margin-bottom:5px;">
+                            <input type="checkbox" checked={subtask.completed} on:change={() => toggleSubtaskComplete(subtask)} />
+                            <span style="color:var(--text-color, white); text-decoration: {subtask.completed ? 'line-through' : 'none'}; opacity: {subtask.completed ? 0.6 : 1};">{subtask.title}</span>
+                        </div>
+                    {/each}
+                    {#if $tasks.filter(t => t.parent_id === $editingTask.id).length === 0}
+                        <span style="color: #666; font-size: 0.85rem; font-style: italic;">No subtasks yet.</span>
+                    {/if}
+                </div>
+                <div class="add-subtask" style="display:flex; gap:8px;">
+                    <input type="text" bind:value={newSubtaskTitle} placeholder="New subtask..." style="flex:1; background:var(--input-bg, #111); border:1px solid var(--border-color, #333); color:var(--text-color, white); padding:5px; border-radius:4px;" on:keydown={(e) => e.key === 'Enter' && addSubtask()} />
+                    <button class="btn secondary" on:click={addSubtask}>Add</button>
+                </div>
+            </div>
         </div>
 
         <div class="study-launch-banner">

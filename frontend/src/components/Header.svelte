@@ -17,7 +17,6 @@
             {#if !$isHeaderCollapsed}
                 <span>- v30 Studio</span>
             {/if}
-            <span class="app-build-stamp">{appVersion}</span>
         </h1>
     </div>
     <div class="theme-toggle">
@@ -55,25 +54,6 @@
     .header-title-area h1 span { color: #777; font-weight: normal; font-size: 1.2rem; }
     .header.collapsed h1 span { font-size: 1rem; }
     .header-actions { display: flex; align-items: center; gap: 15px; }
-
-    .app-build-stamp {
-        font-size: 0.6rem;
-        font-family: monospace;
-        color: var(--text-color, #555);
-        background: var(--modal-bg, #1a1a1a);
-        padding: 2px 6px;
-        border-radius: 4px;
-        margin-left: 10px;
-        font-weight: normal;
-        letter-spacing: 0.5px;
-        border: 1px solid var(--border-color, #2a2a2a);
-        user-select: none;
-    }
-    .header.collapsed .app-build-stamp {
-        font-size: 0.55rem;
-        padding: 1px 4px;
-        margin-left: 6px;
-    }
 
     .view-tabs { display: flex; gap: 8px; margin-bottom: 20px; border-bottom: 1px solid #222; padding-bottom: 12px; }
     .view-tabs button { background: none; border: none; color: #777; padding: 8px 16px; cursor: pointer; font-weight: 600; }
