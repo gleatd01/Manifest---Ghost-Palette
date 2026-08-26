@@ -1,5 +1,5 @@
 <script>
-    import { tasks, activeTasks, editingTask } from '../stores/appStore.js';
+    import { tasks, activeTasks, editingTask, topics } from '../stores/appStore.js';
     import { isBlocked, formatTaskForEdit } from '../lib/helpers.js';
 
     let calendarMode = 'month';
@@ -69,7 +69,7 @@
                 <div class="cal-cell">
                     <div class="day-num">{i + 1}</div>
                     {#each $activeTasks.filter(t => t.due_date && new Date(t.due_date).getDate() === (i+1) && new Date(t.due_date).getMonth() === currentMonth) as t}
-                        <div class="mini-task {isBlocked(t, $tasks) ? 'blocked' : ''}" on:click={() => openEdit(t)}>{t.title}</div>
+                        <div class="mini-task {isBlocked(t, $tasks) ? 'blocked' : ''}" on:click={() => openEdit(t)} style={t.topic_id ? `border-left: 3px solid ${$topics.find(top => top.id === t.topic_id)?.color || 'transparent'};` : ''}>{t.title}</div>
                     {/each}
                 </div>
             {/each}
@@ -80,7 +80,7 @@
                 <div class="cal-cell">
                     <div class="day-header">{wd.dateObj.toLocaleString('default', {weekday: 'short'})} {wd.dayNum}</div>
                     {#each wd.tasks as t}
-                        <div class="mini-task {isBlocked(t, $tasks) ? 'blocked' : ''}" on:click={() => openEdit(t)}>{t.title}</div>
+                        <div class="mini-task {isBlocked(t, $tasks) ? 'blocked' : ''}" on:click={() => openEdit(t)} style={t.topic_id ? `border-left: 3px solid ${$topics.find(top => top.id === t.topic_id)?.color || 'transparent'};` : ''}>{t.title}</div>
                     {/each}
                 </div>
             {/each}
