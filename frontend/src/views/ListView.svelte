@@ -1,10 +1,12 @@
 <script>
     import { tasks, topics, activeTasks, editingTask, loadTasks } from '../stores/appStore.js';
     import { isBlocked, formatTaskForEdit } from '../lib/helpers.js';
+    import CreateTopicModal from '../components/CreateTopicModal.svelte';
 
     let newTaskTitle = '';
     let newTaskTopicId = null;
     let selectedTopicFilter = null;
+    let showCreateTopicModal = false;
 
     /**
      * Adds a new task by calling the POST API.
@@ -58,24 +60,42 @@
     function openEdit(task) {
         editingTask.set(formatTaskForEdit(task));
     }
+
+    function handleTopicChange(event) {
+        if (newTaskTopicId === 'NEW_TOPIC') {
+            newTaskTopicId = null;
+            showCreateTopicModal = true;
+        }
+    }
+
+    function handleTopicSaved(event) {
+        const topic = event.detail.topic;
+        newTaskTopicId = topic.id;
+        showCreateTopicModal = false;
+    }
 </script>
+
+{#if showCreateTopicModal}
+    <CreateTopicModal on:close={() => showCreateTopicModal = false} on:save={handleTopicSaved} />
+{/if}
 
 <!-- Task Input Area -->
 <div class="task-input">
     <input type="text" bind:value={newTaskTitle} placeholder="New task..." />
-    <select bind:value={newTaskTopicId} style="background:#1a1a1a; border:1px solid #333; color:white; border-radius:4px; padding:5px; max-width: 150px;">
+    <select bind:value={newTaskTopicId} on:change={handleTopicChange} style="background:var(--input-bg, #1a1a1a); border:1px solid var(--border-color, #333); color:var(--text-color, white); border-radius:4px; padding:5px; max-width: 150px;">
         <option value={null}>No Topic</option>
         {#each $topics as topic}
             <option value={topic.id}>{topic.name}</option>
         {/each}
+        <option value="NEW_TOPIC">+ Add New Topic...</option>
     </select>
     <button class="add-btn" on:click={addTask}>+</button>
 </div>
 
 <!-- Topic Filter -->
 <div class="topic-filter" style="margin-bottom: 15px; display: flex; align-items: center; gap: 10px;">
-    <label style="color:#aaa; font-size:0.9rem;">Filter by Topic:</label>
-    <select bind:value={selectedTopicFilter} style="background:#1a1a1a; border:1px solid #333; color:white; border-radius:4px; padding:5px;">
+    <label style="color:var(--text-color, #aaa); font-size:0.9rem;">Filter by Topic:</label>
+    <select bind:value={selectedTopicFilter} style="background:var(--input-bg, #1a1a1a); border:1px solid var(--border-color, #333); color:var(--text-color, white); border-radius:4px; padding:5px;">
         <option value={null}>All Topics</option>
         {#each $topics as topic}
             <option value={topic.id}>{topic.name}</option>
@@ -107,11 +127,11 @@
 
 <style>
     .task-input { display: flex; gap: 10px; margin-bottom: 20px; }
-    .task-input input { flex: 1; padding: 10px; background: #1a1a1a; border: 1px solid #333; color: white; border-radius: 4px; }
+    .task-input input { flex: 1; padding: 10px; background: var(--input-bg, #1a1a1a); border: 1px solid var(--border-color, #333); color: var(--text-color, white); border-radius: 4px; }
     .add-btn { background: #646cff; color: white; border: none; padding: 0 20px; font-size: 1.5rem; border-radius: 4px; cursor: pointer; }
 
     .task-list { list-style: none; padding: 0; margin: 0; }
-    .task-item { display: flex; align-items: center; gap: 15px; background: #1a1a1a; padding: 15px; margin-bottom: 10px; border-radius: 6px; border: 1px solid #222; cursor: pointer; }
+    .task-item { display: flex; align-items: center; gap: 15px; background: var(--modal-bg, #1a1a1a); padding: 15px; margin-bottom: 10px; border-radius: 6px; border: 1px solid var(--border-color, #222); cursor: pointer; }
     .task-item.blocked { opacity: 0.5; }
 
     .badge { background: #555; color: #ddd; font-size: 0.75rem; padding: 3px 8px; border-radius: 12px; white-space: nowrap; margin-left:10px; }

@@ -9,6 +9,17 @@ import { writable, derived } from 'svelte/store';
 export const user = writable(null);
 
 /**
+ * theme: Global theme state ('dark' or 'light').
+ */
+export const theme = writable(localStorage.getItem('theme') || 'dark');
+theme.subscribe(val => {
+    localStorage.setItem('theme', val);
+    if (typeof document !== 'undefined') {
+        document.body.className = val;
+    }
+});
+
+/**
  * allUsers: A list of all available users in the system (used for task assignment).
  */
 export const allUsers = writable([]);

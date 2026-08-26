@@ -54,7 +54,7 @@
 <div class="settings-card" style="margin-top: 20px;">
     <h2>API Integrations (Power Automate)</h2>
     <div class="task-input">
-        <input type="text" bind:value={newKeyName} placeholder="Key description..." style="padding:10px; background:#111; border:1px solid #333; color:white; border-radius:4px; flex:1;" />
+        <input type="text" bind:value={newKeyName} placeholder="Key description..." style="padding:10px; background:var(--input-bg, #111); border:1px solid var(--border-color, #333); color:var(--text-color, white); border-radius:4px; flex:1;" />
         <button class="btn primary" on:click={generateKey}>Generate</button>
     </div>
     {#if apiKeys.length > 0}
@@ -80,17 +80,17 @@
 {/if}
 
 <style>
-    .settings-card { background: #1a1a1a; padding: 20px; border-radius: 8px; border: 1px solid #222; }
+    .settings-card { background: var(--modal-bg, #1a1a1a); padding: 20px; border-radius: 8px; border: 1px solid var(--border-color, #222); transition: background 0.3s ease;}
 
     .task-input { display: flex; gap: 10px; margin-bottom: 20px; }
     .btn { padding: 10px 15px; border-radius: 6px; border: none; font-weight: bold; cursor: pointer; transition: 0.2s; }
     .btn.primary { background: #646cff; color: white; }
-    .btn.secondary { background: #333; color: white; }
+    .btn.secondary { background: var(--btn-secondary-bg, #333); color: var(--btn-secondary-text, white); }
 
     .task-list { list-style: none; padding: 0; margin: 0; }
-    .task-item { display: flex; align-items: center; gap: 15px; background: #1a1a1a; padding: 15px; margin-bottom: 10px; border-radius: 6px; border: 1px solid #222; }
+    .task-item { display: flex; align-items: center; gap: 15px; background: var(--modal-bg, #1a1a1a); padding: 15px; margin-bottom: 10px; border-radius: 6px; border: 1px solid var(--border-color, #222); transition: background 0.3s ease;}
 
     .modal-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 100; overflow-y: auto;}
-    .modal { background: #1a1a1a; padding: 25px; border-radius: 8px; width: 450px; border: 1px solid #333; margin: auto;}
+    .modal { background: var(--modal-bg, #1a1a1a); padding: 25px; border-radius: 8px; width: 450px; border: 1px solid var(--border-color, #333); margin: auto; transition: background 0.3s ease;}
     .full-width { width: 100%; box-sizing: border-box; }
 </style>
