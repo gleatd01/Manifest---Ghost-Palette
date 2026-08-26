@@ -146,7 +146,7 @@
         --btn-secondary-text: #1e293b;
     }
 
-    main { padding: 20px; display: flex; justify-content: center; }
+    main { padding: 20px; display: flex; flex-direction: column; align-items: center; min-height: 100vh; box-sizing: border-box; }
     .container { width: 100%; max-width: 900px; background: var(--container-bg); padding: 25px; border-radius: 10px; border: 1px solid var(--border-color); position: relative; transition: background 0.3s ease;}
     .study-expanded { max-width: 1500px; height: 95vh; display: flex; flex-direction: column; overflow: hidden; }
 
@@ -155,7 +155,7 @@
         font-size: 0.7rem;
         color: var(--text-color);
         opacity: 0.5;
-        margin-top: 20px;
+        margin-top: auto;
     }
 
     .login-box { text-align: center; padding: 40px; background: var(--modal-bg); border: 1px solid var(--border-color); border-radius: 8px; margin-top: 20px;}

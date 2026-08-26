@@ -14,9 +14,6 @@
     <div class="header-title-area">
         <h1>
             Manifest
-            {#if !$isHeaderCollapsed}
-                <span>- v30 Studio</span>
-            {/if}
         </h1>
     </div>
     <div class="theme-toggle">
@@ -51,8 +48,6 @@
     .header.collapsed { padding-bottom: 5px; margin-bottom: 10px; border-bottom: 1px solid #222; }
     .header.collapsed h1 { font-size: 1.1rem; color: #888; margin: 0; }
     .header-title-area h1 { margin: 0; font-size: 1.5rem; display: flex; align-items: center; }
-    .header-title-area h1 span { color: #777; font-weight: normal; font-size: 1.2rem; }
-    .header.collapsed h1 span { font-size: 1rem; }
     .header-actions { display: flex; align-items: center; gap: 15px; }
 
     .view-tabs { display: flex; gap: 8px; margin-bottom: 20px; border-bottom: 1px solid #222; padding-bottom: 12px; }
