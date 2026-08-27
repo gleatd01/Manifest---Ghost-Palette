@@ -1,0 +1,58 @@
+
+> manifest-ghost-palette@30.4.0 dev
+> concurrently "npm run dev:backend" "npm run dev:frontend"
+
+[0]
+[0] > manifest-ghost-palette@30.4.0 dev:backend
+[0] > nodemon backend/server.js
+[0]
+[1]
+[1] > manifest-ghost-palette@30.4.0 dev:frontend
+[1] > cd frontend && vite
+[1]
+[0] [33m[nodemon] 3.1.14[39m
+[0] [33m[nodemon] to restart at any time, enter `rs`[39m
+[0] [33m[nodemon] watching path(s): *.*[39m
+[0] [33m[nodemon] watching extensions: js,mjs,cjs,json[39m
+[0] [32m[nodemon] starting `node backend/server.js`[39m
+[0] [32m[nodemon] restarting due to changes...[39m
+[0] [32m[nodemon] starting `node backend/server.js`[39m
+[0] [32m[nodemon] restarting due to changes...[39m
+[1]
+[1]   VITE v5.4.21  ready in 706 ms
+[1]
+[1]   ➜  Local:   http://localhost:5173/
+[1]   ➜  Network: use --host to expose
+[0] [32m[nodemon] starting `node backend/server.js`[39m
+[0] (node:176744) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+[0] (Use `node --trace-deprecation ...` to show where the warning was created)
+[0] [v30.4 Handwriting] Server Running. Port: 3000
+[0] DB Error: AggregateError [ECONNREFUSED]:
+[0]     at /app/node_modules/pg-pool/index.js:45:11
+[0]     at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+[0]     at async initDB (file:///app/backend/db/index.js:17:9) {
+[0]   code: 'ECONNREFUSED',
+[0]   [errors]: [
+[0]     Error: connect ECONNREFUSED ::1:5432
+[0]         at createConnectionError (node:net:1678:14)
+[0]         at afterConnectMultiple (node:net:1708:16) {
+[0]       errno: -111,
+[0]       code: 'ECONNREFUSED',
+[0]       syscall: 'connect',
+[0]       address: '::1',
+[0]       port: 5432
+[0]     },
+[0]     Error: connect ECONNREFUSED 127.0.0.1:5432
+[0]         at createConnectionError (node:net:1678:14)
+[0]         at afterConnectMultiple (node:net:1708:16) {
+[0]       errno: -111,
+[0]       code: 'ECONNREFUSED',
+[0]       syscall: 'connect',
+[0]       address: '127.0.0.1',
+[0]       port: 5432
+[0]     }
+[0]   ]
+[0] }
+[0] Terminated
+[0] npm run dev:backend exited with code 143
+[1] npm run dev:frontend exited with code 0

@@ -13,6 +13,14 @@
     let currentPoints = [];
     let strokes = [];
 
+    // Notes Mode State
+    let notesMode = 'text'; // 'text', 'scratchpad'
+    let notesCurrentPoints = [];
+    let notesStrokes = [];
+    let notesPadRef;
+    let notesPadWidth = 500;
+    let notesPadHeight = 300;
+
     // PDF variables
     let pdfContainerRef;
     let canvasRef;
@@ -139,6 +147,15 @@
         if (drawingMode === 'fabric' && fabCanvas) fabCanvas.clear();
     }
 
+    function insertPdfSvgToNotes() {
+        if (drawingMode !== 'svg' || strokes.length === 0) return;
+        let svgStr = generateSvgStringFromStrokes(strokes);
+        $editingTask.description = ($editingTask.description || '') + "\n\n" + svgStr + "\n\n";
+        saveEdit();
+        renderPreview();
+        clearHandwriting();
+    }
+
     function svgDown(e) {
         if (isPanning) return;
         e.currentTarget.setPointerCapture(e.pointerId);
@@ -154,6 +171,81 @@
         if (isPanning || currentPoints.length === 0) return;
         strokes = [...strokes, currentPoints];
         currentPoints = [];
+    }
+
+    // --- Notes Scratchpad Handlers ---
+    function notesSvgDown(e) {
+        e.currentTarget.setPointerCapture(e.pointerId);
+        notesCurrentPoints = [[e.offsetX, e.offsetY, e.pressure || 0.5]];
+    }
+
+    function notesSvgMove(e) {
+        if (e.buttons !== 1 || notesCurrentPoints.length === 0) return;
+        notesCurrentPoints = [...notesCurrentPoints, [e.offsetX, e.offsetY, e.pressure || 0.5]];
+    }
+
+    function notesSvgUp(e) {
+        if (notesCurrentPoints.length === 0) return;
+        notesStrokes = [...notesStrokes, notesCurrentPoints];
+        notesCurrentPoints = [];
+    }
+
+    function clearNotesScratchpad() {
+        notesStrokes = [];
+    }
+
+    function generateSvgStringFromStrokes(targetStrokes) {
+        if (targetStrokes.length === 0) return "";
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        targetStrokes.forEach(stroke => {
+            stroke.forEach(pt => {
+                if (pt[0] < minX) minX = pt[0];
+                if (pt[1] < minY) minY = pt[1];
+                if (pt[0] > maxX) maxX = pt[0];
+                if (pt[1] > maxY) maxY = pt[1];
+            });
+        });
+
+        // Add padding
+        minX -= 20; minY -= 20; maxX += 20; maxY += 20;
+        let width = maxX - minX;
+        let height = maxY - minY;
+
+        let paths = targetStrokes.map(stroke => {
+            let offsetStroke = stroke.map(pt => [pt[0] - minX, pt[1] - minY, pt[2]]);
+            let d = getSvgPathFromStroke(window.perfectFreehand.getStroke(offsetStroke, { size: 6, thinning: 0.5, smoothing: 0.5 }));
+            return `<path d="${d}" fill="#3b82f6" />`;
+        }).join("");
+
+        return `<svg viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">\n${paths}\n</svg>`;
+    }
+
+    function insertScratchpadToNotes() {
+        if (notesStrokes.length === 0) return;
+        let svgStr = generateSvgStringFromStrokes(notesStrokes);
+        $editingTask.description = ($editingTask.description || '') + "\n\n" + svgStr + "\n\n";
+        saveEdit();
+        renderPreview();
+        clearNotesScratchpad();
+        notesMode = 'text'; // switch back to text mode
+    }
+
+    // Handle resize of notes pad container
+    let ro;
+    $: if (notesPadRef) {
+        if (!ro) {
+            ro = new ResizeObserver(entries => {
+                for (let entry of entries) {
+                    if (entry.target === notesPadRef) {
+                        notesPadWidth = entry.contentRect.width;
+                        notesPadHeight = entry.contentRect.height;
+                    }
+                }
+            });
+        }
+        ro.observe(notesPadRef);
+    } else if (ro) {
+        ro.disconnect();
     }
 
     function getSvgPathFromStroke(stroke) {
@@ -369,6 +461,9 @@
                                 <button class="btn {isPanning ? 'secondary' : 'primary'} small-btn" style="padding:6px;" on:click={() => isPanning = false}>✏️ Draw</button>
                                 <button class="btn {isPanning ? 'primary' : 'secondary'} small-btn" style="padding:6px;" on:click={() => isPanning = true}>🖐 Pan Workspace</button>
                                 <button class="btn secondary small-btn" style="padding:6px; margin-left:auto;" on:click={clearHandwriting}>🗑️ Clear Ink</button>
+                                {#if drawingMode === 'svg'}
+                                    <button class="btn primary small-btn" style="padding:6px; margin-left:10px;" on:click={insertPdfSvgToNotes}>➕ Insert to Notes</button>
+                                {/if}
                             {/if}
                         </div>
                     {/if}
@@ -406,9 +501,41 @@
             </div>
 
             <div class="notes-block">
-                <p class="section-label" style="font-size:0.75rem;">LaTeX / Markdown Notes</p>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                    <p class="section-label" style="font-size:0.75rem; margin:0;">LaTeX / Markdown Notes</p>
+                    <div style="display:flex; gap:10px;">
+                        <button class="btn {notesMode === 'text' ? 'primary' : 'secondary'} small-btn" style="padding:4px 8px; font-size:0.75rem;" on:click={() => notesMode = 'text'}>Text/LaTeX</button>
+                        <button class="btn {notesMode === 'scratchpad' ? 'primary' : 'secondary'} small-btn" style="padding:4px 8px; font-size:0.75rem;" on:click={() => notesMode = 'scratchpad'}>Scratchpad</button>
+                    </div>
+                </div>
+
                 <div style="display:flex; gap:15px; flex:1; min-height:0;">
-                    <textarea bind:value={$editingTask.description} on:input={() => { saveEdit(); renderPreview(); }} placeholder="Type your notes here..."></textarea>
+                    {#if notesMode === 'text'}
+                        <textarea bind:value={$editingTask.description} on:input={() => { saveEdit(); renderPreview(); }} placeholder="Type your notes here..."></textarea>
+                    {:else}
+                        <div class="notes-scratchpad-container" bind:this={notesPadRef} style="flex:1; background:#111; border: 1px solid #333; border-radius:6px; position:relative; touch-action:none; overflow:hidden;">
+                            {#if notesPadWidth && notesPadHeight}
+                                <svg
+                                    style="width:{notesPadWidth}px; height:{notesPadHeight}px; cursor:crosshair; display:block;"
+                                    on:pointerdown={notesSvgDown}
+                                    on:pointermove={notesSvgMove}
+                                    on:pointerup={notesSvgUp}
+                                    on:pointerleave={notesSvgUp}
+                                >
+                                    {#each notesStrokes as stroke}
+                                        <path d={getSvgPathFromStroke(window.perfectFreehand.getStroke(stroke, { size: 6, thinning: 0.5, smoothing: 0.5 }))} fill="#3b82f6" />
+                                    {/each}
+                                    {#if notesCurrentPoints.length > 0}
+                                        <path d={getSvgPathFromStroke(window.perfectFreehand.getStroke(notesCurrentPoints, { size: 6, thinning: 0.5, smoothing: 0.5 }))} fill="#3b82f6" />
+                                    {/if}
+                                </svg>
+                            {/if}
+                            <div style="position:absolute; bottom:10px; right:10px; display:flex; gap:10px;">
+                                <button class="btn secondary small-btn" style="padding:6px;" on:click={clearNotesScratchpad}>🗑️ Clear</button>
+                                <button class="btn primary small-btn" style="padding:6px;" on:click={insertScratchpadToNotes}>➕ Insert to Notes</button>
+                            </div>
+                        </div>
+                    {/if}
                     <div id="md-preview" class="markdown-body"></div>
                 </div>
             </div>
