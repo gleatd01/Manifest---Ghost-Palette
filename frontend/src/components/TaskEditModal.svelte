@@ -42,6 +42,17 @@
         loadTasks(); // Update the global state
     }
 
+    async function deleteTask() {
+        if (!confirm("Are you sure you want to delete this task?")) return;
+        const res = await fetch(`/api/tasks/${$editingTask.id}`, {
+            method: 'DELETE'
+        });
+        if (res.ok) {
+            closeEdit();
+            loadTasks();
+        }
+    }
+
     function closeEdit() {
         editingTask.set(null);
     }
@@ -237,9 +248,12 @@
             <button class="btn primary full-width" on:click={openStudyMode}>📚 Open Study Mode (Attach PDF & Audio)</button>
         </div>
 
-        <div class="modal-actions">
-            <button class="btn secondary" on:click={closeEdit}>Cancel</button>
-            <button class="btn primary" on:click={() => {saveEdit(); closeEdit();}}>Save</button>
+        <div class="modal-actions" style="justify-content: space-between;">
+            <button class="btn danger" on:click={deleteTask}>Delete Task</button>
+            <div style="display: flex; gap: 10px;">
+                <button class="btn secondary" on:click={closeEdit}>Cancel</button>
+                <button class="btn primary" on:click={() => {saveEdit(); closeEdit();}}>Save</button>
+            </div>
         </div>
     </div>
 </div>

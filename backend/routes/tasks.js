@@ -95,4 +95,12 @@ router.put('/:id', ensureAuthenticatedOrApiKey, async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
+router.delete('/:id', ensureAuthenticatedOrApiKey, async (req, res) => {
+    try {
+        await pool.query('DELETE FROM tasks WHERE id = $1 AND user_id = $2', [req.params.id, req.user.id]);
+        req.app.get('io').emit('workspace-update');
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: 'Failed to delete task' }); }
+});
+
 export default router;
