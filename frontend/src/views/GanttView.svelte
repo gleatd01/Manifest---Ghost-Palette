@@ -17,9 +17,9 @@
 </div>
 
 <style>
-    .gantt-view { background: var(--modal-bg, #1a1a1a); padding: 20px; border-radius: 8px; transition: background 0.3s ease; }
-    .gantt-row { display: flex; align-items: center; margin-bottom: 10px; border-bottom: 1px solid var(--border-color, #222); padding-bottom: 10px; }
-    .gantt-row.blocked .gantt-bar { background: #8a6a00; opacity: 0.5; }
+    .gantt-view { background: var(--modal-bg); padding: 20px; border-radius: 8px; transition: background 0.3s ease; }
+    .gantt-row { display: flex; align-items: center; margin-bottom: 10px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; }
+    .gantt-row.blocked .gantt-bar { background: var(--warning-bg); opacity: 0.5; }
     .gantt-label { width: 150px; font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 15px;}
-    .gantt-bar { height: 20px; background: #646cff; border-radius: 10px; width: 60%; }
+    .gantt-bar { height: 20px; background: var(--btn-primary-bg); border-radius: 10px; width: 60%; }
 </style>

@@ -1,0 +1,78 @@
+:root {
+    /* Button primary colors */
+    --btn-primary-bg: #646cff;
+    --btn-primary-text: white;
+
+    /* Danger button colors */
+    --btn-danger-bg: #ff5555;
+    --btn-danger-text: white;
+
+    /* Other colors */
+    --warning-bg: #8a6a00;
+    --badge-bg: #555;
+    --badge-text: #ddd;
+    --danger-bg: #ff5555;
+    --success-text: #10b981;
+    --code-bg: #000;
+    --sidebar-bg: #161616;
+    --panel-bg: #080808;
+}
+
+body {
+    --bg-color: #0c0c0c;
+    --text-color: #e2e8f0;
+    --container-bg: #141414;
+    --border-color: #222;
+    --modal-bg: #1a1a1a;
+    --input-bg: #111;
+    --btn-secondary-bg: #333;
+    --btn-secondary-text: white;
+    --btn-secondary-hover-bg: #444;
+    background: var(--bg-color);
+    color: var(--text-color);
+    font-family: system-ui, sans-serif;
+    margin: 0;
+    padding: 0;
+    transition: background 0.3s ease, color 0.3s ease;
+}
+
+body.light {
+    --bg-color: #f0f4f8;
+    --text-color: #1a202c;
+    --container-bg: #ffffff;
+    --border-color: #cbd5e1;
+    --modal-bg: #f8fafc;
+    --input-bg: #ffffff;
+    --btn-secondary-bg: #e2e8f0;
+    --btn-secondary-text: #1e293b;
+    --btn-secondary-hover-bg: #cbd5e1;
+}
+
+/* Global button styles to reduce duplication */
+.btn {
+    padding: 10px 15px;
+    border-radius: 6px;
+    border: none;
+    font-weight: bold;
+    cursor: pointer;
+    transition: 0.2s;
+}
+
+.btn.primary {
+    background: var(--btn-primary-bg);
+    color: var(--btn-primary-text);
+}
+
+.btn.secondary {
+    background: var(--btn-secondary-bg);
+    color: var(--btn-secondary-text);
+}
+
+.btn.secondary:hover {
+    background: var(--btn-secondary-hover-bg);
+}
+
+.btn.danger {
+    background: var(--btn-danger-bg);
+    color: var(--btn-danger-text);
+}

@@ -90,19 +90,19 @@
 
 <style>
     .cal-controls { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
-    .cal-view-toggles button { background: #111; color: #888; border: 1px solid #333; padding: 5px 15px; border-radius: 4px; cursor: pointer;}
-    .cal-view-toggles button.active { background: #646cff; color: white; border-color: #646cff; }
+    .cal-view-toggles button { background: var(--input-bg); color: var(--text-color); border: 1px solid var(--border-color); padding: 5px 15px; border-radius: 4px; cursor: pointer;}
+    .cal-view-toggles button.active { background: var(--btn-primary-bg); color: var(--text-color); border-color: var(--btn-primary-bg); }
     .cal-nav { display: flex; align-items: center; gap: 15px; }
-    .cal-nav button { background: #333; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; }
+    .cal-nav button { background: var(--btn-secondary-bg); color: var(--text-color); border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; }
     .cal-header-title { min-width: 180px; text-align: center; }
 
     .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
-    .cal-header-cell { text-align: center; font-weight: bold; color: #888; padding-bottom: 10px; }
-    .cal-cell { background: var(--modal-bg, #1a1a1a); min-height: 80px; padding: 5px; border-radius: 4px; display: flex; flex-direction: column;}
+    .cal-header-cell { text-align: center; font-weight: bold; color: var(--text-color); padding-bottom: 10px; }
+    .cal-cell { background: var(--modal-bg); min-height: 80px; padding: 5px; border-radius: 4px; display: flex; flex-direction: column;}
     .cal-cell.empty { background: transparent; }
     .day-num { text-align: right; color: #666; font-size: 0.8rem; margin-bottom: 5px;}
-    .day-header { text-align: center; font-weight: bold; color: #888; font-size: 0.85rem; padding-bottom: 5px; border-bottom: 1px solid #333; margin-bottom: 5px; }
+    .day-header { text-align: center; font-weight: bold; color: var(--text-color); font-size: 0.85rem; padding-bottom: 5px; border-bottom: 1px solid var(--border-color); margin-bottom: 5px; }
 
-    .mini-task { background: #646cff; color: white; font-size: 0.7rem; padding: 3px 5px; border-radius: 2px; margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
-    .mini-task.blocked { background: #8a6a00; opacity: 0.8; }
+    .mini-task { background: var(--btn-primary-bg); color: var(--text-color); font-size: 0.7rem; padding: 3px 5px; border-radius: 2px; margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+    .mini-task.blocked { background: var(--warning-bg); opacity: 0.8; }
 </style>

@@ -82,7 +82,7 @@
 <!-- Task Input Area -->
 <div class="task-input">
     <input type="text" bind:value={newTaskTitle} placeholder="New task..." />
-    <select bind:value={newTaskTopicId} on:change={handleTopicChange} style="background:var(--input-bg, #1a1a1a); border:1px solid var(--border-color, #333); color:var(--text-color, white); border-radius:4px; padding:5px; max-width: 150px;">
+    <select bind:value={newTaskTopicId} on:change={handleTopicChange} style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); border-radius:4px; padding:5px; max-width: 150px;">
         <option value={null}>No Topic</option>
         {#each $topics as topic}
             <option value={topic.id}>{topic.name}</option>
@@ -94,8 +94,8 @@
 
 <!-- Topic Filter -->
 <div class="topic-filter" style="margin-bottom: 15px; display: flex; align-items: center; gap: 10px;">
-    <label style="color:var(--text-color, #aaa); font-size:0.9rem;">Filter by Topic:</label>
-    <select bind:value={selectedTopicFilter} style="background:var(--input-bg, #1a1a1a); border:1px solid var(--border-color, #333); color:var(--text-color, white); border-radius:4px; padding:5px;">
+    <label style="color:var(--text-color); font-size:0.9rem;">Filter by Topic:</label>
+    <select bind:value={selectedTopicFilter} style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); border-radius:4px; padding:5px;">
         <option value={null}>All Topics</option>
         {#each $topics as topic}
             <option value={topic.id}>{topic.name}</option>
@@ -112,7 +112,7 @@
                 <div style="display:flex; flex-direction:column;">
                     <span class="task-title">{task.title}</span>
                     {#if task.topic_id}
-                        <span style="font-size: 0.75rem; color: #888; margin-top: 2px;">
+                        <span style="font-size: 0.75rem; color: var(--text-color); margin-top: 2px;">
                             {$topics.find(t => t.id === task.topic_id)?.name || ''}
                         </span>
                     {/if}
@@ -127,15 +127,15 @@
 
 <style>
     .task-input { display: flex; gap: 10px; margin-bottom: 20px; }
-    .task-input input { flex: 1; padding: 10px; background: var(--input-bg, #1a1a1a); border: 1px solid var(--border-color, #333); color: var(--text-color, white); border-radius: 4px; }
-    .add-btn { background: #646cff; color: white; border: none; padding: 0 20px; font-size: 1.5rem; border-radius: 4px; cursor: pointer; }
+    .task-input input { flex: 1; padding: 10px; background: var(--input-bg); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 4px; }
+    .add-btn { background: var(--btn-primary-bg); color: var(--text-color); border: none; padding: 0 20px; font-size: 1.5rem; border-radius: 4px; cursor: pointer; }
 
     .task-list { list-style: none; padding: 0; margin: 0; }
-    .task-item { display: flex; align-items: center; gap: 15px; background: var(--modal-bg, #1a1a1a); padding: 15px; margin-bottom: 10px; border-radius: 6px; border: 1px solid var(--border-color, #222); cursor: pointer; }
+    .task-item { display: flex; align-items: center; gap: 15px; background: var(--modal-bg); padding: 15px; margin-bottom: 10px; border-radius: 6px; border: 1px solid var(--border-color); cursor: pointer; }
     .task-item.blocked { opacity: 0.5; }
 
-    .badge { background: #555; color: #ddd; font-size: 0.75rem; padding: 3px 8px; border-radius: 12px; white-space: nowrap; margin-left:10px; }
-    .badge.warning { background: #8a6a00; font-weight: bold; }
+    .badge { background: var(--badge-bg); color: var(--text-color); font-size: 0.75rem; padding: 3px 8px; border-radius: 12px; white-space: nowrap; margin-left:10px; }
+    .badge.warning { background: var(--warning-bg); font-weight: bold; }
 
     .task-content { flex: 1; display: flex; align-items: center; justify-content: space-between; }
 </style>

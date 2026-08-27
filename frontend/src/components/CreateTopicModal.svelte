@@ -62,13 +62,10 @@
 
 <style>
     .modal-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 200; overflow-y: auto;}
-    .modal { background: var(--modal-bg, #1a1a1a); padding: 25px; border-radius: 8px; width: 400px; border: 1px solid var(--border-color, #333); margin: auto; transition: background 0.3s ease;}
+    .modal { background: var(--modal-bg); padding: 25px; border-radius: 8px; width: 400px; border: 1px solid var(--border-color); margin: auto; transition: background 0.3s ease;}
     h2 { margin-top: 0; color: var(--text-color, #ddd); font-size: 1.5rem; margin-bottom: 20px;}
     .topic-input { display: flex; gap: 10px; margin-bottom: 20px; }
-    .topic-input input[type="text"] { flex: 1; padding: 10px; background: var(--input-bg, #111); border: 1px solid var(--border-color, #333); color: var(--text-color, white); border-radius: 4px; }
+    .topic-input input[type="text"] { flex: 1; padding: 10px; background: var(--input-bg); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 4px; }
     .topic-input input[type="color"] { width: 50px; height: 100%; cursor: pointer; border: none; background: none; padding: 0; }
     .modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
-    .btn { padding: 10px 15px; border-radius: 6px; border: none; font-weight: bold; cursor: pointer; transition: 0.2s; }
-    .btn.primary { background: #646cff; color: white; }
-    .btn.secondary { background: var(--btn-secondary-bg, #333); color: var(--btn-secondary-text, white); }
 </style>
