@@ -3,7 +3,7 @@
     import { editingTask, isStudyMode, isHeaderCollapsed, loadTasks } from '../stores/appStore.js';
     import * as pdfjsLib from 'pdfjs-dist';
 
-    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
 
     // --- Study Mode Local State ---
     let drawingMode = 'off'; // 'off', 'svg', 'fabric'
