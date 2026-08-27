@@ -402,7 +402,7 @@
 {#if $editingTask}
 <div class="study-workspace">
     <div class="study-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
-        <input class="ws-title-input" type="text" bind:value={$editingTask.title} placeholder="Document Title" style="background:transparent; border:none; border-bottom:1px solid #333; color:white; font-size:1.4rem; font-weight:bold; width:60%; padding:8px 0;" on:input={saveEdit} />
+        <input class="ws-title-input" type="text" bind:value={$editingTask.title} placeholder="Document Title" style="background:transparent; border:none; border-bottom:1px solid var(--border-color); color: var(--text-color); font-size:1.4rem; font-weight:bold; width:60%; padding:8px 0;" on:input={saveEdit} />
         <button class="btn secondary" on:click={closeEdit}>Exit Study Mode</button>
     </div>
 
@@ -450,8 +450,8 @@
                     </div>
 
                     {#if $editingTask.pdf_url}
-                        <div class="hw-tools" style="display:flex; gap:10px; align-items:center; border-top: 1px solid #333; padding-top: 10px;">
-                            <select bind:value={drawingMode} on:change={handleModeSwitch} style="background:#222; color:white; border:1px solid #444; padding:6px; border-radius:4px; font-size:0.85rem;">
+                        <div class="hw-tools" style="display:flex; gap:10px; align-items:center; border-top: 1px solid var(--border-color); padding-top: 10px;">
+                            <select bind:value={drawingMode} on:change={handleModeSwitch} style="background: var(--border-color); color: var(--text-color); border:1px solid var(--border-color); padding:6px; border-radius:4px; font-size:0.85rem;">
                                 <option value="off">Mode: Read-Only</option>
                                 <option value="svg">Mode: Perfect Freehand (Vector)</option>
                                 <option value="fabric">Mode: Fabric.js (Canvas)</option>
@@ -513,7 +513,7 @@
                     {#if notesMode === 'text'}
                         <textarea bind:value={$editingTask.description} on:input={() => { saveEdit(); renderPreview(); }} placeholder="Type your notes here..."></textarea>
                     {:else}
-                        <div class="notes-scratchpad-container" bind:this={notesPadRef} style="flex:1; background:#111; border: 1px solid #333; border-radius:6px; position:relative; touch-action:none; overflow:hidden;">
+                        <div class="notes-scratchpad-container" bind:this={notesPadRef} style="flex:1; background: var(--input-bg); border: 1px solid var(--border-color); border-radius:6px; position:relative; touch-action:none; overflow:hidden;">
                             {#if notesPadWidth && notesPadHeight}
                                 <svg
                                     style="width:{notesPadWidth}px; height:{notesPadHeight}px; cursor:crosshair; display:block;"
@@ -548,38 +548,36 @@
     .study-workspace { display: flex; flex-direction: column; flex: 1; min-height: 0; }
     .study-layout-container { display: flex; gap: 20px; width: 100%; flex: 1; transition: flex 0.3s ease; min-height: 0; }
 
-    .study-sidebar { width: 280px; flex-shrink: 0; display: flex; flex-direction: column; background: #161616; border: 1px solid #333; border-radius: 8px; padding: 15px; box-sizing: border-box; overflow: hidden; }
-    .pane-header { font-size: 0.8rem; font-weight: bold; color: #666; text-transform: uppercase; letter-spacing: 1px; padding-bottom: 6px; border-bottom: 1px solid #222; margin-bottom: 15px; }
+    .study-sidebar { width: 280px; flex-shrink: 0; display: flex; flex-direction: column; background: var(--sidebar-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 15px; box-sizing: border-box; overflow: hidden; }
+    .pane-header { font-size: 0.8rem; font-weight: bold; color: #666; text-transform: uppercase; letter-spacing: 1px; padding-bottom: 6px; border-bottom: 1px solid var(--border-color); margin-bottom: 15px; }
     .audio-controls { display: flex; gap: 10px; margin-bottom: 15px; }
-    .btn { padding: 10px 15px; border-radius: 6px; border: none; font-weight: bold; cursor: pointer; transition: 0.2s; }
-    .btn.action-btn { flex: 1; padding: 10px; border-radius: 6px; font-weight: bold; cursor: pointer; border: none; text-align: center; transition: 0.2s; }
-    .record-btn { background: #e11d48; color: white; }
-    .record-btn:hover { background: #f43f5e; }
-    .stop-btn { background: #475569; color: white; }
-    .stop-btn:hover { background: #64748b; }
+    .record-btn { background: var(--danger-bg); color: var(--text-color); }
+    .record-btn:hover { background: #f43f5e; /* hover state */ }
+    .stop-btn { background: var(--badge-bg); color: var(--text-color); }
+    .stop-btn:hover { background: #64748b; /* hover state */ }
     .audio-player { width: 100%; height: 35px; border-radius: 4px; }
 
     .transcript-box { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-    .transcription-box { flex: 1; background: #0f172a; border: 1px solid #1e293b; color: #94a3b8; padding: 12px; border-radius: 6px; font-family: inherit; resize: none; width: 100%; box-sizing: border-box; line-height: 1.5; outline: none;}
-    .transcription-box:focus { border-color: #646cff; }
+    .transcription-box { flex: 1; background: var(--input-bg); border: 1px solid #1e293b; color: #94a3b8; padding: 12px; border-radius: 6px; font-family: inherit; resize: none; width: 100%; box-sizing: border-box; line-height: 1.5; outline: none;}
+    .transcription-box:focus { border-color: var(--btn-primary-bg); }
 
     .study-main-workspace { flex: 1; display: flex; flex-direction: column; gap: 15px; min-width: 0; overflow: hidden; }
-    .pdf-panel { flex: 3; display: flex; flex-direction: column; background: #080808; border-radius: 8px; border: 1px solid #333; overflow: hidden; min-height: 0; }
-    .panel-tools { padding: 12px; background: #161616; border-bottom: 1px solid #333; display: flex; justify-content: center;}
+    .pdf-panel { flex: 3; display: flex; flex-direction: column; background: var(--panel-bg); border-radius: 8px; border: 1px solid var(--border-color); overflow: hidden; min-height: 0; }
+    .panel-tools { padding: 12px; background: var(--sidebar-bg); border-bottom: 1px solid var(--border-color); display: flex; justify-content: center;}
     .pdf-nav { display: flex; align-items: center; gap: 15px; }
-    .pdf-nav button { background: #2a2a3a; color: white; border: 1px solid #4a4a6a; padding: 6px 15px; border-radius: 4px; font-weight: bold; cursor: pointer; }
+    .pdf-nav button { background: var(--input-bg); color: var(--text-color); border: 1px solid var(--border-color); padding: 6px 15px; border-radius: 4px; font-weight: bold; cursor: pointer; }
 
-    .canvas-container { flex: 1; overflow: hidden; display: flex; justify-content: center; align-items: center; padding: 15px; background: #111; cursor: grab;}
+    .canvas-container { flex: 1; overflow: hidden; display: flex; justify-content: center; align-items: center; padding: 15px; background: var(--input-bg); cursor: grab;}
     .canvas-container:active { cursor: grabbing; }
-    .pdf-base-layer { display: block; background: white; box-shadow: 0 4px 20px rgba(0,0,0,0.8); border-radius: 4px; max-width: 100%; object-fit: contain; }
+    .pdf-base-layer { display: block; background: var(--container-bg); box-shadow: 0 4px 20px rgba(0,0,0,0.8); border-radius: 4px; max-width: 100%; object-fit: contain; }
 
     .drawing-layer { position: absolute; top: 0; left: 0; touch-action: none; z-index: 10; }
     .svg-layer { z-index: 11; }
     .fabric-layer { z-index: 12; }
 
-    .notes-block { flex: 2; display: flex; flex-direction: column; background: #161616; padding: 15px; border-radius: 8px; border: 1px solid #333; min-height: 0; }
-    .notes-block textarea { flex: 1; background: #111; color: white; border: 1px solid #333; padding: 15px; border-radius: 6px; font-family: inherit; resize: none; line-height: 1.5; outline: none; }
-    .notes-block textarea:focus { border-color: #646cff; }
-    .markdown-body { flex: 1; padding: 15px; background: #111; border-radius: 6px; border: 1px solid #333; overflow-y: auto; line-height: 1.6; }
-    .upload-btn { background: #646cff; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: bold; color: white; transition: 0.2s; }
+    .notes-block { flex: 2; display: flex; flex-direction: column; background: var(--sidebar-bg); padding: 15px; border-radius: 8px; border: 1px solid var(--border-color); min-height: 0; }
+    .notes-block textarea { flex: 1; background: var(--input-bg); color: var(--text-color); border: 1px solid var(--border-color); padding: 15px; border-radius: 6px; font-family: inherit; resize: none; line-height: 1.5; outline: none; }
+    .notes-block textarea:focus { border-color: var(--btn-primary-bg); }
+    .markdown-body { flex: 1; padding: 15px; background: var(--input-bg); border-radius: 6px; border: 1px solid var(--border-color); overflow-y: auto; line-height: 1.6; }
+    .upload-btn { background: var(--btn-primary-bg); padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: bold; color: var(--text-color); transition: 0.2s; }
 </style>

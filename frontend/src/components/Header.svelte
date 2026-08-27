@@ -45,19 +45,16 @@
 
 <style>
     .header { transition: all 0.3s ease; overflow: hidden; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #232323; padding-bottom: 15px; margin-bottom: 20px; }
-    .header.collapsed { padding-bottom: 5px; margin-bottom: 10px; border-bottom: 1px solid #222; }
-    .header.collapsed h1 { font-size: 1.1rem; color: #888; margin: 0; }
+    .header.collapsed { padding-bottom: 5px; margin-bottom: 10px; border-bottom: 1px solid var(--border-color); }
+    .header.collapsed h1 { font-size: 1.1rem; color: var(--text-color); margin: 0; }
     .header-title-area h1 { margin: 0; font-size: 1.5rem; display: flex; align-items: center; }
     .header-actions { display: flex; align-items: center; gap: 15px; }
 
-    .view-tabs { display: flex; gap: 8px; margin-bottom: 20px; border-bottom: 1px solid #222; padding-bottom: 12px; }
+    .view-tabs { display: flex; gap: 8px; margin-bottom: 20px; border-bottom: 1px solid var(--border-color); padding-bottom: 12px; }
     .view-tabs button { background: none; border: none; color: #777; padding: 8px 16px; cursor: pointer; font-weight: 600; }
-    .view-tabs button.active { background: #222; color: #fff; border-radius: 4px; }
+    .view-tabs button.active { background: var(--border-color); color: var(--text-color); border-radius: 4px; }
 
-    .logout-btn { background: #333; color: #ccc; border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; }
-    .btn { padding: 10px 15px; border-radius: 6px; border: none; font-weight: bold; cursor: pointer; transition: 0.2s; }
-    .btn.secondary { background: var(--btn-secondary-bg, #333); color: var(--btn-secondary-text, white); }
-    .btn.secondary:hover { background: var(--btn-secondary-hover-bg, #444); }
+    .logout-btn { background: var(--btn-secondary-bg); color: #ccc; border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; }
 
     .theme-toggle { margin-right: auto; margin-left: 20px;}
     .yin-yang-btn { background: none; border: none; font-size: 1.5rem; cursor: pointer; transition: transform 0.3s ease; color: var(--text-color, #fff);}

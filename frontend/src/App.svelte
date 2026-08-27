@@ -121,31 +121,6 @@
 </main>
 
 <style>
-    :global(body) {
-        --bg-color: #0c0c0c;
-        --text-color: #e2e8f0;
-        --container-bg: #141414;
-        --border-color: #222;
-        --modal-bg: #1a1a1a;
-        --input-bg: #111;
-        --btn-secondary-bg: #333;
-        --btn-secondary-text: white;
-        background: var(--bg-color);
-        color: var(--text-color);
-        font-family: system-ui, sans-serif; margin: 0; padding: 0;
-        transition: background 0.3s ease, color 0.3s ease;
-    }
-    :global(body.light) {
-        --bg-color: #f0f4f8;
-        --text-color: #1a202c;
-        --container-bg: #ffffff;
-        --border-color: #cbd5e1;
-        --modal-bg: #f8fafc;
-        --input-bg: #ffffff;
-        --btn-secondary-bg: #e2e8f0;
-        --btn-secondary-text: #1e293b;
-    }
-
     main { padding: 20px; display: flex; flex-direction: column; align-items: center; min-height: 100vh; box-sizing: border-box; }
     .container { width: 100%; max-width: 900px; background: var(--container-bg); padding: 25px; border-radius: 10px; border: 1px solid var(--border-color); position: relative; transition: background 0.3s ease;}
     .study-expanded { max-width: 1500px; height: 95vh; display: flex; flex-direction: column; overflow: hidden; }
@@ -159,5 +134,5 @@
     }
 
     .login-box { text-align: center; padding: 40px; background: var(--modal-bg); border: 1px solid var(--border-color); border-radius: 8px; margin-top: 20px;}
-    .google-btn { display: inline-block; background: #4285f4; color: white; text-decoration: none; padding: 10px 20px; border-radius: 4px; font-weight: 500; margin-top: 15px; }
+    .google-btn { display: inline-block; background: var(--btn-primary-bg); color: var(--text-color); text-decoration: none; padding: 10px 20px; border-radius: 4px; font-weight: 500; margin-top: 15px; }
 </style>
