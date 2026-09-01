@@ -30,6 +30,17 @@ export const allUsers = writable([]);
 export const topics = writable([]);
 
 /**
+ * topicsMap: A derived map of topic.id to topic object for O(1) lookups.
+ */
+export const topicsMap = derived(topics, $topics => {
+    const map = {};
+    for (const topic of $topics) {
+        map[topic.id] = topic;
+    }
+    return map;
+});
+
+/**
  * tasks: Holds the entire list of tasks for the current user.
  */
 export const tasks = writable([]);

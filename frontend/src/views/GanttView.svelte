@@ -1,5 +1,5 @@
 <script>
-    import { activeTasks, tasks, topics } from '../stores/appStore.js';
+    import { activeTasks, tasks, topicsMap } from '../stores/appStore.js';
     import { isBlocked, computeHierarchy } from '../lib/helpers.js';
 </script>
 
@@ -11,7 +11,7 @@
             <div class="gantt-label" style="padding-left: {task._level * 15}px;">
                 {#if isBlocked(task, $tasks)}🔒 {/if}{task.title}
             </div>
-            <div class="gantt-bar" style={task.topic_id ? `background-color: ${$topics.find(t => t.id === task.topic_id)?.color || '#646cff'};` : ''}></div>
+            <div class="gantt-bar" style={task.topic_id ? `background-color: ${$topicsMap[task.topic_id]?.color || '#646cff'};` : ''}></div>
         </div>
     {/each}
 </div>

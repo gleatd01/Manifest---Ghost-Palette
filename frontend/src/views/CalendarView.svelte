@@ -1,5 +1,5 @@
 <script>
-    import { tasks, activeTasks, editingTask, topics } from '../stores/appStore.js';
+    import { tasks, activeTasks, editingTask, topicsMap } from '../stores/appStore.js';
     import { isBlocked, formatTaskForEdit } from '../lib/helpers.js';
 
     let calendarMode = 'month';
@@ -12,11 +12,28 @@
     $: firstDayOfMonth = new Date(currentYear, currentMonth, 1).getDay();
     $: currentWeekStart = new Date(currentYear, currentMonth, currentDate.getDate() - currentDate.getDay());
 
+    // Pre-group tasks by day for the month view to avoid O(N*M) filtering
+    $: tasksByDay = (() => {
+        const map = new Map();
+        for (const t of $activeTasks) {
+            if (t.due_date) {
+                // Assuming t.due_date is an ISO string or similar, parse it once
+                const d = new Date(t.due_date);
+                if (d.getMonth() === currentMonth && d.getFullYear() === currentYear) {
+                    const day = d.getDate();
+                    if (!map.has(day)) map.set(day, []);
+                    map.get(day).push(t);
+                }
+            }
+        }
+        return map;
+    })();
+
     // Generate data for the week view
     $: weekDays = Array.from({ length: 7 }, (_, i) => {
         const d = new Date(currentWeekStart.getFullYear(), currentWeekStart.getMonth(), currentWeekStart.getDate() + i, 12);
         const dateStr = d.toISOString().split('T')[0];
-        const dayTasks = $tasks.filter(t => !t.completed && t.due_date && t.due_date.startsWith(dateStr));
+        const dayTasks = $activeTasks.filter(t => t.due_date && t.due_date.startsWith(dateStr));
         return { dayNum: d.getDate(), dateStr, tasks: dayTasks, dateObj: d };
     });
 
@@ -68,8 +85,8 @@
             {#each Array(daysInMonth) as _, i}
                 <div class="cal-cell">
                     <div class="day-num">{i + 1}</div>
-                    {#each $activeTasks.filter(t => t.due_date && new Date(t.due_date).getDate() === (i+1) && new Date(t.due_date).getMonth() === currentMonth) as t}
-                        <div class="mini-task {isBlocked(t, $tasks) ? 'blocked' : ''}" on:click={() => openEdit(t)} style={t.topic_id ? `border-left: 3px solid ${$topics.find(top => top.id === t.topic_id)?.color || 'transparent'};` : ''}>{t.title}</div>
+                    {#each (tasksByDay.get(i + 1) || []) as t}
+                        <div class="mini-task {isBlocked(t, $tasks) ? 'blocked' : ''}" on:click={() => openEdit(t)} style={t.topic_id ? `border-left: 3px solid ${$topicsMap[t.topic_id]?.color || 'transparent'};` : ''}>{t.title}</div>
                     {/each}
                 </div>
             {/each}
@@ -80,7 +97,7 @@
                 <div class="cal-cell">
                     <div class="day-header">{wd.dateObj.toLocaleString('default', {weekday: 'short'})} {wd.dayNum}</div>
                     {#each wd.tasks as t}
-                        <div class="mini-task {isBlocked(t, $tasks) ? 'blocked' : ''}" on:click={() => openEdit(t)} style={t.topic_id ? `border-left: 3px solid ${$topics.find(top => top.id === t.topic_id)?.color || 'transparent'};` : ''}>{t.title}</div>
+                        <div class="mini-task {isBlocked(t, $tasks) ? 'blocked' : ''}" on:click={() => openEdit(t)} style={t.topic_id ? `border-left: 3px solid ${$topicsMap[t.topic_id]?.color || 'transparent'};` : ''}>{t.title}</div>
                     {/each}
                 </div>
             {/each}
