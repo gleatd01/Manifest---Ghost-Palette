@@ -1,5 +1,5 @@
 <script>
-    import { agendaTasks, tasks, editingTask, topics } from '../stores/appStore.js';
+    import { agendaTasks, tasks, editingTask, topicsMap } from '../stores/appStore.js';
     import { isBlocked, formatTaskForEdit } from '../lib/helpers.js';
 
     /**
@@ -16,7 +16,7 @@
         <p class="empty" style="color:#666; font-style:italic;">No tasks on the agenda.</p>
     {/if}
     {#each $agendaTasks as task}
-        <div class="agenda-item {task.completed ? 'completed' : ''} {isBlocked(task, $tasks) ? 'blocked' : ''}" on:click={() => openEdit(task)} style={task.topic_id ? `border-left: 4px solid ${$topics.find(t => t.id === task.topic_id)?.color || '#333'};` : ''}>
+        <div class="agenda-item {task.completed ? 'completed' : ''} {isBlocked(task, $tasks) ? 'blocked' : ''}" on:click={() => openEdit(task)} style={task.topic_id ? `border-left: 4px solid ${$topicsMap[task.topic_id]?.color || '#333'};` : ''}>
             <div class="agenda-date">
                 {#if task.due_date}
                     <span class="day">{new Date(task.due_date).toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' })}</span>

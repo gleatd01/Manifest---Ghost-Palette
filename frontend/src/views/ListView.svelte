@@ -1,5 +1,5 @@
 <script>
-    import { tasks, topics, activeTasks, editingTask, loadTasks } from '../stores/appStore.js';
+    import { tasks, topics, topicsMap, activeTasks, editingTask, loadTasks } from '../stores/appStore.js';
     import { isBlocked, formatTaskForEdit, computeHierarchy } from '../lib/helpers.js';
     import CreateTopicModal from '../components/CreateTopicModal.svelte';
 
@@ -106,14 +106,14 @@
 <!-- Task List Display -->
 <ul class="task-list">
     {#each computeHierarchy($activeTasks).filter(t => selectedTopicFilter === null || t.topic_id === selectedTopicFilter) as task}
-        <li class="task-item {isBlocked(task, $tasks) ? 'blocked' : ''}" style="{task.topic_id ? `border-left: 4px solid ${$topics.find(t => t.id === task.topic_id)?.color || '#333'};` : ''} margin-left: {task._level * 20}px;">
+        <li class="task-item {isBlocked(task, $tasks) ? 'blocked' : ''}" style="{task.topic_id ? `border-left: 4px solid ${$topicsMap[task.topic_id]?.color || '#333'};` : ''} margin-left: {task._level * 20}px;">
             <input type="checkbox" disabled={isBlocked(task, $tasks)} checked={task.completed} on:change={() => toggleComplete(task)} />
             <div class="task-content" on:click={() => openEdit(task)}>
                 <div style="display:flex; flex-direction:column;">
                     <span class="task-title">{task.title}</span>
                     {#if task.topic_id}
                         <span style="font-size: 0.75rem; color: var(--text-color); margin-top: 2px;">
-                            {$topics.find(t => t.id === task.topic_id)?.name || ''}
+                            {$topicsMap[task.topic_id]?.name || ''}
                         </span>
                     {/if}
                 </div>
