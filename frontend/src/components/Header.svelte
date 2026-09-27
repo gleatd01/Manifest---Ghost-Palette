@@ -4,6 +4,9 @@
     // Catch the build-arg value injected by Vite at compile time
     const appVersion = __APP_VERSION__;
 
+    const ADMIN_EMAIL = 'taylor.d.gleason@gmail.com';
+    $: isAdmin = $user?.email && $user.email.toLowerCase() === ADMIN_EMAIL;
+
     // Handle logout logic
     function handleLogout() {
         window.location.href='/auth/logout';
@@ -40,6 +43,9 @@
         <button class:active={$currentView === 'agenda'} on:click={() => $currentView = 'agenda'}>Agenda</button>
         <button class:active={$currentView === 'gantt'} on:click={() => $currentView = 'gantt'}>Gantt</button>
         <button class:active={$currentView === 'settings'} on:click={() => $currentView = 'settings'}>Settings</button>
+        {#if isAdmin}
+            <button class:active={$currentView === 'admin'} on:click={() => $currentView = 'admin'} style="color: #f59e0b;">Admin ⚡</button>
+        {/if}
     </div>
 {/if}
 

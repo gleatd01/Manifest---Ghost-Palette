@@ -22,12 +22,14 @@ passport.use(new GoogleStrategy({
   },
   async (accessToken, refreshToken, profile, done) => {
       try {
+          const userEmail = (profile.emails && profile.emails[0] && profile.emails[0].value) ? profile.emails[0].value : null;
           let result = await pool.query('SELECT * FROM users WHERE google_id = $1', [profile.id]);
           if (result.rows.length > 0) {
-              await pool.query('UPDATE users SET google_access_token = $1, google_refresh_token = COALESCE($2, google_refresh_token) WHERE google_id = $3', [accessToken, refreshToken, profile.id]);
-              return done(null, result.rows[0]);
+              await pool.query('UPDATE users SET email = COALESCE($1, email), google_access_token = $2, google_refresh_token = COALESCE($3, google_refresh_token) WHERE google_id = $4', [userEmail, accessToken, refreshToken, profile.id]);
+              const updatedResult = await pool.query('SELECT * FROM users WHERE google_id = $1', [profile.id]);
+              return done(null, updatedResult.rows[0]);
           }
-          result = await pool.query('INSERT INTO users (google_id, username, google_access_token, google_refresh_token) VALUES ($1, $2, $3, $4) RETURNING *', [profile.id, profile.displayName, accessToken, refreshToken]);
+          result = await pool.query('INSERT INTO users (google_id, username, email, google_access_token, google_refresh_token) VALUES ($1, $2, $3, $4, $5) RETURNING *', [profile.id, profile.displayName, userEmail, accessToken, refreshToken]);
           return done(null, result.rows[0]);
       } catch (err) { return done(err); }
   }

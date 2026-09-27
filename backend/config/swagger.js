@@ -11,7 +11,7 @@ export const swaggerOptions = {
         info: {
             title: 'Manifest Ghost Palette API',
             version: '30.4.0',
-            description: 'API for task management and Microsoft Power Automate integration.',
+            description: 'API documentation for Manifest Ghost Palette. Explains how to integrate with Microsoft Outlook and Power Automate using API keys (x-api-key header), manage tasks, and leverage background Google Drive file storage/processing when users are offline or unauthenticated.',
         },
         servers: [
             {

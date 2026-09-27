@@ -13,6 +13,27 @@ const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } }); // 50MB limit
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_mock');
 
+/**
+ * @swagger
+ * /api/drive/download/{id}:
+ *   get:
+ *     summary: Download a file from Google Drive via server-side processing
+ *     description: Leverages stored server tokens (or user session) to stream files from Google Drive even when operating via Power Automate / background API keys.
+ *     security:
+ *       - ApiKeyAuth: []
+ *       - CookieAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: File media stream
+ *       403:
+ *         description: Google Auth missing
+ */
 router.get('/drive/download/:id', ensureAuthenticatedOrApiKey, async (req, res) => {
     if (!req.user.google_access_token) return res.status(403).json({ error: 'Google Auth missing.' });
     try {
@@ -28,6 +49,38 @@ router.get('/drive/download/:id', ensureAuthenticatedOrApiKey, async (req, res) 
     }
 });
 
+/**
+ * @swagger
+ * /api/drive/upload:
+ *   post:
+ *     summary: Upload a file to Google Drive via server storage and processing
+ *     description: Stores and processes file uploads into the 'manifest-ghost' Google Drive folder using server credentials when offline or authenticated via API Key.
+ *     security:
+ *       - ApiKeyAuth: []
+ *       - CookieAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               file:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       200:
+ *         description: File uploaded successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 fileId:
+ *                   type: string
+ *                 link:
+ *                   type: string
+ */
 router.post('/drive/upload', ensureAuthenticatedOrApiKey, upload.single('file'), async (req, res) => {
     if (!req.user.google_access_token) return res.status(403).json({ error: 'Google Auth missing.' });
     try {
