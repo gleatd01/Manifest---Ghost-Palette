@@ -377,12 +377,20 @@
     function handleAudioTimeUpdate(e) {
         const currentTime = e.target.currentTime;
         if (slideTimeline.length > 0 && !isRecording && !isRendering) {
+            let low = 0;
+            let high = slideTimeline.length - 1;
             let targetedPage = slideTimeline[0].page;
-            for (let point of slideTimeline) {
-                if (currentTime >= point.time) {
-                    targetedPage = point.page;
+
+            while (low <= high) {
+                let mid = Math.floor((low + high) / 2);
+                if (slideTimeline[mid].time <= currentTime) {
+                    targetedPage = slideTimeline[mid].page;
+                    low = mid + 1;
+                } else {
+                    high = mid - 1;
                 }
             }
+
             if (activePlaybackPage !== targetedPage) {
                 renderPage(targetedPage);
             }
