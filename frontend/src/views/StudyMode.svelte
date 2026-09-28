@@ -6,29 +6,25 @@
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
     // --- Study Mode Local State ---
-    let drawingMode = 'off'; // 'off', 'svg', 'fabric'
-    let isPanning = false;
-    let pzInstance = null;
-    let fabCanvas = null;
-    let currentPoints = [];
-    let strokes = [];
+    let activeTool = 'pen'; // 'pen', 'highlighter', 'eraser', 'pan'
+    let strokeColor = '#3b82f6';
+    let strokeSize = 5;
+    let extraPageHeight = 0; // Extra blank space added below slide/canvas
 
-    // Notes Mode State
-    let notesMode = 'text'; // 'text', 'scratchpad'
-    let notesCurrentPoints = [];
-    let notesStrokes = [];
-    let notesPadRef;
-    let notesPadWidth = 500;
-    let notesPadHeight = 300;
+    let pzInstance = null;
+    let currentPoints = [];
+    let allStrokes = []; // Stored persistently in $editingTask.handwriting_data
 
     // PDF variables
     let pdfContainerRef;
     let canvasRef;
+    let svgRef;
+    let audioRef;
     let pdfDoc = null;
     let pageNum = 1;
     let isRendering = false;
-    let pdfWidth = 0;
-    let pdfHeight = 0;
+    let pdfWidth = 800;
+    let pdfHeight = 1000;
 
     // Media variables
     let mediaRecorder = null;
@@ -38,21 +34,39 @@
     let recordingStartTime = 0;
     let slideTimeline = [];
     let activePlaybackPage = 1;
+    let currentAudioTime = 0;
+    let activeStrokeId = null;
+
+    $: pageStrokes = allStrokes.filter(s => (s.page || 1) === pageNum);
 
     // Initialization logic for Study Mode
     onMount(async () => {
         if ($editingTask.slide_tracking) {
-            slideTimeline = JSON.parse($editingTask.slide_tracking);
+            try { slideTimeline = JSON.parse($editingTask.slide_tracking); } catch(e) { slideTimeline = []; }
         } else {
             slideTimeline = [];
+        }
+
+        if ($editingTask.handwriting_data) {
+            try { allStrokes = JSON.parse($editingTask.handwriting_data); } catch(e) { allStrokes = []; }
+        } else {
+            allStrokes = [];
         }
 
         if ($editingTask.pdf_url) {
             await tick();
             loadPdf($editingTask.pdf_url);
+        } else {
+            // Setup blank paper default dimensions
+            pdfWidth = 800;
+            pdfHeight = 1000;
+            await tick();
+            renderBlankCanvas();
+            initPanzoom();
         }
 
         initSpeechRecognition();
+        renderPreview();
     });
 
     /**
@@ -82,8 +96,6 @@
         if(isRecording) stopRecording();
         isStudyMode.set(false);
         isHeaderCollapsed.set(false);
-        // Do not synchronously clear editingTask here to prevent null-dereference crashes
-        // before Svelte unmounts this component. The parent App.svelte handles cleanup.
         setTimeout(() => editingTask.set(null), 10);
     }
 
@@ -91,6 +103,7 @@
      * Persists the current editingTask state to the server.
      */
     async function saveEdit() {
+        $editingTask.handwriting_data = JSON.stringify(allStrokes);
         await fetch(`/api/tasks/${$editingTask.id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
@@ -118,87 +131,166 @@
             maxZoom: 5,
             minZoom: 0.5,
             beforeMouseDown: function(e) {
-                if (drawingMode !== 'off' && !isPanning) return true;
-                return false;
+                // Apple Pencil ('pen') always bypasses panzoom to draw
+                if (e.pointerType === 'pen') return true;
+                // Finger touch ('touch') MUST ALWAYS pass to panzoom for pan & zoom only!
+                if (e.pointerType === 'touch') return false;
+                // Mouse: if activeTool === 'pan', allow panzoom, else block
+                if (activeTool === 'pan') return false;
+                return true;
             }
         });
     }
 
-    async function handleModeSwitch() {
-        await tick();
-        if (drawingMode !== 'off') initPanzoom();
-
-        if (drawingMode === 'fabric') {
-            if (fabCanvas) fabCanvas.dispose();
-            fabCanvas = new window.fabric.Canvas('fab-canvas', {
-                isDrawingMode: true,
-                width: pdfWidth,
-                height: pdfHeight
-            });
-            fabCanvas.freeDrawingBrush.color = '#3b82f6';
-            fabCanvas.freeDrawingBrush.width = 3;
+    function addBlankSpace() {
+        extraPageHeight += 300;
+        if (!pdfDoc) {
+            renderBlankCanvas();
         } else {
-            if (fabCanvas) { fabCanvas.dispose(); fabCanvas = null; }
+            renderPage(pageNum);
+        }
+    }
+
+    function renderBlankCanvas() {
+        if (!canvasRef) return;
+        const totalHeight = pdfHeight + extraPageHeight;
+        canvasRef.width = pdfWidth;
+        canvasRef.height = totalHeight;
+        const ctx = canvasRef.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, pdfWidth, totalHeight);
+
+        // Draw light horizontal notebook guidelines
+        ctx.strokeStyle = '#e2e8f0';
+        ctx.lineWidth = 1;
+        for (let y = 40; y < totalHeight; y += 30) {
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(pdfWidth, y);
+            ctx.stroke();
         }
     }
 
     function clearHandwriting() {
-        if (drawingMode === 'svg') strokes = [];
-        if (drawingMode === 'fabric' && fabCanvas) fabCanvas.clear();
+        allStrokes = allStrokes.filter(s => (s.page || 1) !== pageNum);
+        saveEdit();
     }
 
-    function insertPdfSvgToNotes() {
-        if (drawingMode !== 'svg' || strokes.length === 0) return;
-        let svgStr = generateSvgStringFromStrokes(strokes);
-        $editingTask.description = ($editingTask.description || '') + "\n\n" + svgStr + "\n\n";
-        saveEdit();
-        renderPreview();
-        clearHandwriting();
+    function getAudioTimestamp() {
+        if (audioRef && !audioRef.paused && audioRef.currentTime > 0) {
+            return Math.floor(audioRef.currentTime);
+        }
+        if (audioRef && audioRef.currentTime > 0) {
+            return Math.floor(audioRef.currentTime);
+        }
+        if (isRecording) {
+            return Math.floor((Date.now() - recordingStartTime) / 1000);
+        }
+        return 0;
+    }
+
+    function formatTime(seconds) {
+        const m = Math.floor(seconds / 60);
+        const s = Math.floor(seconds % 60);
+        return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    }
+
+    function getCanvasCoordinates(e) {
+        const el = svgRef || e.currentTarget;
+        const rect = el ? el.getBoundingClientRect() : null;
+        if (!rect || rect.width === 0 || rect.height === 0) {
+            return [e.offsetX || 0, e.offsetY || 0, e.pressure || 0.5];
+        }
+        const scaleX = pdfWidth / rect.width;
+        const scaleY = pdfHeight / rect.height;
+        const x = (e.clientX - rect.left) * scaleX;
+        const y = (e.clientY - rect.top) * scaleY;
+        return [x, y, e.pressure || 0.5];
     }
 
     function svgDown(e) {
-        if (isPanning) return;
-        e.currentTarget.setPointerCapture(e.pointerId);
-        currentPoints = [[e.offsetX, e.offsetY, e.pressure || 0.5]];
+        // Finger touches are strictly reserved for pan & zoom
+        if (e.pointerType === 'touch') return;
+        if (e.pointerType === 'mouse' && activeTool === 'pan') return;
+
+        if (e.cancelable) e.preventDefault();
+
+        try {
+            e.currentTarget.setPointerCapture(e.pointerId);
+        } catch(err) {}
+
+        const pt = getCanvasCoordinates(e);
+
+        if (activeTool === 'eraser') {
+            eraseStrokeAt(pt[0], pt[1]);
+            return;
+        }
+
+        currentPoints = [pt];
     }
 
     function svgMove(e) {
-        if (isPanning || e.buttons !== 1 || currentPoints.length === 0) return;
-        currentPoints = [...currentPoints, [e.offsetX, e.offsetY, e.pressure || 0.5]];
+        if (e.pointerType === 'touch') return;
+        if (currentPoints.length === 0 && activeTool !== 'eraser') return;
+        if (e.pointerType === 'mouse' && activeTool === 'pan') return;
+
+        if (e.cancelable) e.preventDefault();
+
+        const pt = getCanvasCoordinates(e);
+
+        if (activeTool === 'eraser') {
+            if (e.buttons === 1 || e.pressure > 0) {
+                eraseStrokeAt(pt[0], pt[1]);
+            }
+            return;
+        }
+
+        currentPoints = [...currentPoints, pt];
     }
 
     function svgUp(e) {
-        if (isPanning || currentPoints.length === 0) return;
-        strokes = [...strokes, currentPoints];
+        if (e.pointerType === 'touch') return;
+        if (currentPoints.length === 0) return;
+        if (e.cancelable) e.preventDefault();
+
+        try {
+            e.currentTarget.releasePointerCapture(e.pointerId);
+        } catch(err) {}
+
+        const ts = getAudioTimestamp();
+        const newStroke = {
+            id: 'stroke_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+            page: pageNum,
+            timestamp: ts,
+            points: currentPoints,
+            color: activeTool === 'highlighter' ? strokeColor : strokeColor,
+            size: activeTool === 'highlighter' ? strokeSize * 3 : strokeSize,
+            isHighlighter: activeTool === 'highlighter'
+        };
+
+        allStrokes = [...allStrokes, newStroke];
         currentPoints = [];
+        saveEdit();
     }
 
-    // --- Notes Scratchpad Handlers ---
-    function notesSvgDown(e) {
-        e.currentTarget.setPointerCapture(e.pointerId);
-        notesCurrentPoints = [[e.offsetX, e.offsetY, e.pressure || 0.5]];
-    }
-
-    function notesSvgMove(e) {
-        if (e.buttons !== 1 || notesCurrentPoints.length === 0) return;
-        notesCurrentPoints = [...notesCurrentPoints, [e.offsetX, e.offsetY, e.pressure || 0.5]];
-    }
-
-    function notesSvgUp(e) {
-        if (notesCurrentPoints.length === 0) return;
-        notesStrokes = [...notesStrokes, notesCurrentPoints];
-        notesCurrentPoints = [];
-    }
-
-    function clearNotesScratchpad() {
-        notesStrokes = [];
+    function eraseStrokeAt(x, y) {
+        const threshold = 15;
+        allStrokes = allStrokes.filter(stroke => {
+            if ((stroke.page || 1) !== pageNum) return true;
+            for (let pt of stroke.points) {
+                const dist = Math.hypot(pt[0] - x, pt[1] - y);
+                if (dist < threshold) return false; // Delete stroke
+            }
+            return true;
+        });
+        saveEdit();
     }
 
     function generateSvgStringFromStrokes(targetStrokes) {
         if (targetStrokes.length === 0) return "";
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
         targetStrokes.forEach(stroke => {
-            stroke.forEach(pt => {
+            stroke.points.forEach(pt => {
                 if (pt[0] < minX) minX = pt[0];
                 if (pt[1] < minY) minY = pt[1];
                 if (pt[0] > maxX) maxX = pt[0];
@@ -206,46 +298,28 @@
             });
         });
 
-        // Add padding
         minX -= 20; minY -= 20; maxX += 20; maxY += 20;
-        let width = maxX - minX;
-        let height = maxY - minY;
+        let width = Math.max(100, maxX - minX);
+        let height = Math.max(100, maxY - minY);
 
         let paths = targetStrokes.map(stroke => {
-            let offsetStroke = stroke.map(pt => [pt[0] - minX, pt[1] - minY, pt[2]]);
-            let d = getSvgPathFromStroke(window.perfectFreehand.getStroke(offsetStroke, { size: 6, thinning: 0.5, smoothing: 0.5 }));
-            return `<path d="${d}" fill="#3b82f6" />`;
+            let offsetPoints = stroke.points.map(pt => [pt[0] - minX, pt[1] - minY, pt[2]]);
+            let d = getSvgPathFromStroke(window.perfectFreehand.getStroke(offsetPoints, { size: stroke.size || 5, thinning: 0.5, smoothing: 0.5 }));
+            const opacity = stroke.isHighlighter ? 0.4 : 1.0;
+            return `<path d="${d}" fill="${stroke.color || '#3b82f6'}" opacity="${opacity}" />`;
         }).join("");
 
         return `<svg viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">\n${paths}\n</svg>`;
     }
 
-    function insertScratchpadToNotes() {
-        if (notesStrokes.length === 0) return;
-        let svgStr = generateSvgStringFromStrokes(notesStrokes);
-        $editingTask.description = ($editingTask.description || '') + "\n\n" + svgStr + "\n\n";
+    function insertPdfSvgToNotes() {
+        if (pageStrokes.length === 0) return;
+        const ts = getAudioTimestamp();
+        let svgStr = generateSvgStringFromStrokes(pageStrokes);
+        const timeBadge = `\n\n> ⏱️ **Audio Timestamp [${formatTime(ts)}] - Slide ${pageNum}**\n\n` + svgStr + "\n\n";
+        $editingTask.description = ($editingTask.description || '') + timeBadge;
         saveEdit();
         renderPreview();
-        clearNotesScratchpad();
-        notesMode = 'text'; // switch back to text mode
-    }
-
-    // Handle resize of notes pad container
-    let ro;
-    $: if (notesPadRef) {
-        if (!ro) {
-            ro = new ResizeObserver(entries => {
-                for (let entry of entries) {
-                    if (entry.target === notesPadRef) {
-                        notesPadWidth = entry.contentRect.width;
-                        notesPadHeight = entry.contentRect.height;
-                    }
-                }
-            });
-        }
-        ro.observe(notesPadRef);
-    } else if (ro) {
-        ro.disconnect();
     }
 
     function getSvgPathFromStroke(stroke) {
@@ -267,6 +341,7 @@
         try {
             pdfDoc = await pdfjsLib.getDocument(url).promise;
             renderPage(1);
+            initPanzoom();
         } catch(e) { console.error("PDF Load Error", e); }
     }
 
@@ -277,26 +352,42 @@
 
         if (!canvasRef) return;
 
-        const page = await pdfDoc.getPage(num);
-        const viewport = page.getViewport({ scale: 1.5 });
-        canvasRef.height = viewport.height;
-        canvasRef.width = viewport.width;
+        if (pdfDoc) {
+            const page = await pdfDoc.getPage(num);
+            const viewport = page.getViewport({ scale: 1.5 });
+            const totalHeight = viewport.height + extraPageHeight;
 
-        pdfWidth = viewport.width;
-        pdfHeight = viewport.height;
+            canvasRef.height = totalHeight;
+            canvasRef.width = viewport.width;
 
-        await page.render({ canvasContext: canvasRef.getContext('2d'), viewport: viewport }).promise;
+            pdfWidth = viewport.width;
+            pdfHeight = totalHeight;
+
+            const ctx = canvasRef.getContext('2d');
+            await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+
+            if (extraPageHeight > 0) {
+                ctx.fillStyle = '#f8fafc';
+                ctx.fillRect(0, viewport.height, viewport.width, extraPageHeight);
+                ctx.strokeStyle = '#cbd5e1';
+                ctx.lineWidth = 1;
+                for (let y = viewport.height + 30; y < totalHeight; y += 30) {
+                    ctx.beginPath();
+                    ctx.moveTo(0, y);
+                    ctx.lineTo(viewport.width, y);
+                    ctx.stroke();
+                }
+            }
+        } else {
+            renderBlankCanvas();
+        }
+
         isRendering = false;
 
         if (isRecording) {
             const timeElapsed = Math.floor((Date.now() - recordingStartTime) / 1000);
             slideTimeline.push({ time: timeElapsed, page: num });
             $editingTask.slide_tracking = JSON.stringify(slideTimeline);
-        }
-
-        if (drawingMode === 'fabric' && fabCanvas) {
-            fabCanvas.setWidth(pdfWidth);
-            fabCanvas.setHeight(pdfHeight);
         }
     }
 
@@ -376,6 +467,9 @@
 
     function handleAudioTimeUpdate(e) {
         const currentTime = e.target.currentTime;
+        currentAudioTime = Math.floor(currentTime);
+
+        // Slide auto-sync
         if (slideTimeline.length > 0 && !isRecording && !isRendering) {
             let low = 0;
             let high = slideTimeline.length - 1;
@@ -394,6 +488,24 @@
             if (activePlaybackPage !== targetedPage) {
                 renderPage(targetedPage);
             }
+        }
+
+        // Auto-scroll timeline items / notes corresponding to audio time
+        const matchingStroke = allStrokes.find(s => Math.abs((s.timestamp || 0) - currentTime) < 2);
+        if (matchingStroke) {
+            activeStrokeId = matchingStroke.id;
+            const el = document.getElementById(`stroke-item-${matchingStroke.id}`);
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+    }
+
+    function seekToTime(ts, targetPage) {
+        if (targetPage && targetPage !== pageNum) {
+            renderPage(targetPage);
+        }
+        if (audioRef) {
+            audioRef.currentTime = ts;
+            audioRef.play();
         }
     }
 
@@ -415,7 +527,7 @@
     </div>
 
     <div class="study-layout-container {$isHeaderCollapsed ? 'maximized' : ''}">
-        <!-- LEFT SIDEBAR: Audio & Transcripts -->
+        <!-- LEFT SIDEBAR: Audio, Transcripts & Handwritten Timeline -->
         <div class="study-sidebar">
             <div class="pane-header">Audio & Transcript</div>
 
@@ -428,122 +540,139 @@
             </div>
             {#if $editingTask.audio_url}
                 <div style="margin-bottom: 15px;">
-                    <audio controls class="audio-player" src={$editingTask.audio_url} on:timeupdate={handleAudioTimeUpdate}></audio>
+                    <audio bind:this={audioRef} controls class="audio-player" src={$editingTask.audio_url} on:timeupdate={handleAudioTimeUpdate}></audio>
                 </div>
             {/if}
 
-            <div class="transcript-box" id="transcript-scroll-box">
-                <p class="section-label" style="font-size:0.75rem; margin-bottom:8px;">Live Transcription</p>
+            <div class="transcript-box" id="transcript-scroll-box" style="margin-bottom:15px;">
+                <p class="section-label" style="font-size:0.75rem; margin-bottom:6px;">Live Transcription</p>
                 <textarea class="transcription-box" bind:value={$editingTask.transcription} on:input={saveEdit} placeholder="Your live speech will appear here..."></textarea>
+            </div>
+
+            <div class="timeline-box" style="flex:1; display:flex; flex-direction:column; min-height:0; border-top: 1px solid var(--border-color); padding-top: 10px;">
+                <p class="section-label" style="font-size:0.75rem; margin-bottom:6px;">Timestamped Notes & Strokes</p>
+                <div id="timeline-scroll-box" style="flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:6px;">
+                    {#if allStrokes.length === 0}
+                        <p style="font-size:0.75rem; color:#64748b;">No handwritten strokes recorded yet. Write on the canvas with Apple Pencil or pen!</p>
+                    {:else}
+                        {#each allStrokes as stroke}
+                            <button
+                                id="stroke-item-{stroke.id}"
+                                class="timeline-item {activeStrokeId === stroke.id ? 'active' : ''}"
+                                style="display:flex; justify-content:space-between; align-items:center; background: var(--input-bg); border: 1px solid var(--border-color); padding: 6px 10px; border-radius: 4px; font-size: 0.75rem; color: var(--text-color); text-align:left; cursor:pointer;"
+                                on:click={() => seekToTime(stroke.timestamp || 0, stroke.page || 1)}
+                            >
+                                <span>⏱️ <strong>{formatTime(stroke.timestamp || 0)}</strong> (Slide {stroke.page || 1})</span>
+                                <span style="width:12px; height:12px; border-radius:50%; background:{stroke.color || '#3b82f6'}; display:inline-block;"></span>
+                            </button>
+                        {/each}
+                    {/if}
+                </div>
             </div>
         </div>
 
-        <!-- MAIN WORKSPACE: PDF Viewer & Markdown Editor -->
+        <!-- MAIN WORKSPACE: PDF & Canvas Handwriting Workspace & Notes -->
         <div class="study-main-workspace">
             <div class="pdf-panel">
-                <div class="panel-tools" style="display:flex; flex-direction:column; gap:10px;">
+                <!-- Toolbar for PDF / Handwriting Canvas -->
+                <div class="panel-tools" style="display:flex; flex-direction:column; gap:8px; padding:10px; background:var(--sidebar-bg); border-bottom:1px solid var(--border-color);">
                     <div style="display:flex; justify-content:space-between; align-items:center; width:100%;">
                         {#if !$editingTask.pdf_url}
-                            <label class="upload-btn">
-                                Upload PDF to Drive
-                                <input type="file" accept="application/pdf" style="display:none;" on:change={handlePdfUpload} />
-                            </label>
+                            <div style="display:flex; gap:10px; align-items:center;">
+                                <span style="font-weight:bold; font-size:0.9rem; color:var(--text-color);">📝 Blank Paper Canvas</span>
+                                <label class="upload-btn" style="padding:4px 10px; font-size:0.8rem;">
+                                    Upload PDF
+                                    <input type="file" accept="application/pdf" style="display:none;" on:change={handlePdfUpload} />
+                                </label>
+                            </div>
                         {:else}
                             <div class="pdf-nav">
                                 <button on:click={() => renderPage(pageNum-1)} disabled={pageNum<=1}>Prev Slide</button>
-                                <span style="font-weight: bold; color: #a5b4fc;">Slide {pageNum}</span>
+                                <span style="font-weight: bold; color: #a5b4fc;">Slide {pageNum} {pdfDoc ? `/ ${pdfDoc.numPages}` : ''}</span>
                                 <button on:click={() => renderPage(pageNum+1)} disabled={!pdfDoc || pageNum >= pdfDoc.numPages}>Next Slide</button>
                             </div>
                         {/if}
+
+                        <div style="display:flex; gap:8px; align-items:center;">
+                            <button class="btn secondary small-btn" style="padding:4px 8px; font-size:0.8rem;" on:click={addBlankSpace}>➕ Add Blank Space</button>
+                            <button class="btn secondary small-btn" style="padding:4px 8px; font-size:0.8rem;" on:click={clearHandwriting}>🗑️ Clear Ink</button>
+                            <button class="btn primary small-btn" style="padding:4px 8px; font-size:0.8rem;" on:click={insertPdfSvgToNotes}>➕ Insert Ink to Notes</button>
+                        </div>
                     </div>
 
-                    {#if $editingTask.pdf_url}
-                        <div class="hw-tools" style="display:flex; gap:10px; align-items:center; border-top: 1px solid var(--border-color); padding-top: 10px;">
-                            <select bind:value={drawingMode} on:change={handleModeSwitch} style="background: var(--border-color); color: var(--text-color); border:1px solid var(--border-color); padding:6px; border-radius:4px; font-size:0.85rem;">
-                                <option value="off">Mode: Read-Only</option>
-                                <option value="svg">Mode: Perfect Freehand (Vector)</option>
-                                <option value="fabric">Mode: Fabric.js (Canvas)</option>
-                            </select>
-
-                            {#if drawingMode !== 'off'}
-                                <button class="btn {isPanning ? 'secondary' : 'primary'} small-btn" style="padding:6px;" on:click={() => isPanning = false}>✏️ Draw</button>
-                                <button class="btn {isPanning ? 'primary' : 'secondary'} small-btn" style="padding:6px;" on:click={() => isPanning = true}>🖐 Pan Workspace</button>
-                                <button class="btn secondary small-btn" style="padding:6px; margin-left:auto;" on:click={clearHandwriting}>🗑️ Clear Ink</button>
-                                {#if drawingMode === 'svg'}
-                                    <button class="btn primary small-btn" style="padding:6px; margin-left:10px;" on:click={insertPdfSvgToNotes}>➕ Insert to Notes</button>
-                                {/if}
-                            {/if}
+                    <!-- Stylus & Drawing Controls Toolbar -->
+                    <div class="hw-tools" style="display:flex; gap:12px; align-items:center; border-top: 1px solid var(--border-color); padding-top: 8px;">
+                        <div style="display:flex; gap:4px;">
+                            <button class="tool-btn {activeTool === 'pen' ? 'active' : ''}" on:click={() => activeTool = 'pen'} title="Pen (Apple Pencil)">🖊️ Pen</button>
+                            <button class="tool-btn {activeTool === 'highlighter' ? 'active' : ''}" on:click={() => activeTool = 'highlighter'} title="Highlighter">🖍️ Highlight</button>
+                            <button class="tool-btn {activeTool === 'eraser' ? 'active' : ''}" on:click={() => activeTool = 'eraser'} title="Eraser">🧹 Eraser</button>
+                            <button class="tool-btn {activeTool === 'pan' ? 'active' : ''}" on:click={() => activeTool = 'pan'} title="Pan / Zoom Workspace">🖐 Pan/Zoom</button>
                         </div>
-                    {/if}
+
+                        {#if activeTool !== 'eraser' && activeTool !== 'pan'}
+                            <div style="display:flex; gap:6px; align-items:center; margin-left:10px;">
+                                <span style="font-size:0.75rem;">Color:</span>
+                                {#each ['#3b82f6', '#ef4444', '#10b981', '#eab308', '#ffffff', '#000000'] as color}
+                                    <button
+                                        style="width:18px; height:18px; border-radius:50%; background:{color}; border: {strokeColor === color ? '2px solid white' : '1px solid #64748b'}; cursor:pointer; padding:0;"
+                                        on:click={() => strokeColor = color}
+                                    ></button>
+                                {/each}
+                            </div>
+
+                            <div style="display:flex; gap:6px; align-items:center; margin-left:10px;">
+                                <span style="font-size:0.75rem;">Size:</span>
+                                <input type="range" min="2" max="20" bind:value={strokeSize} style="width:70px;" />
+                            </div>
+                        {/if}
+
+                        <span style="font-size:0.7rem; color:#94a3b8; margin-left:auto;">💡 Tip: Finger touch pans & zooms, Apple Pencil writes automatically!</span>
+                    </div>
                 </div>
 
+                <!-- Canvas Workspace -->
                 <div class="canvas-container" bind:this={pdfContainerRef}>
                     <div id="zoom-wrapper" style="position: relative; transform-origin: 0 0;">
                         <canvas bind:this={canvasRef} class="pdf-base-layer"></canvas>
 
-                        {#if drawingMode === 'svg'}
-                            <svg
-                                class="drawing-layer svg-layer"
-                                style="width: {pdfWidth}px; height: {pdfHeight}px; pointer-events: {isPanning ? 'none' : 'auto'};"
-                                on:pointerdown={svgDown}
-                                on:pointermove={svgMove}
-                                on:pointerup={svgUp}
-                                on:pointerleave={svgUp}
-                            >
-                                {#each strokes as stroke}
-                                    <path d={getSvgPathFromStroke(window.perfectFreehand.getStroke(stroke, { size: 6, thinning: 0.5, smoothing: 0.5 }))} fill="#3b82f6" />
-                                {/each}
-                                {#if currentPoints.length > 0}
-                                    <path d={getSvgPathFromStroke(window.perfectFreehand.getStroke(currentPoints, { size: 6, thinning: 0.5, smoothing: 0.5 }))} fill="#3b82f6" />
-                                {/if}
-                            </svg>
-                        {/if}
+                        <!-- Vector Handwriting Layer -->
+                        <svg
+                            bind:this={svgRef}
+                            class="drawing-layer svg-layer"
+                            style="width: {pdfWidth}px; height: {pdfHeight}px; pointer-events: {activeTool === 'pan' ? 'none' : 'auto'}; cursor: {activeTool === 'eraser' ? 'cell' : 'crosshair'}; touch-action: none;"
+                            on:pointerdown={svgDown}
+                            on:pointermove={svgMove}
+                            on:pointerup={svgUp}
+                            on:pointerleave={svgUp}
+                        >
+                            {#each pageStrokes as stroke}
+                                <path
+                                    d={getSvgPathFromStroke(window.perfectFreehand.getStroke(stroke.points, { size: stroke.size || 5, thinning: 0.5, smoothing: 0.5 }))}
+                                    fill={stroke.color || '#3b82f6'}
+                                    opacity={stroke.isHighlighter ? 0.4 : 1.0}
+                                />
+                            {/each}
 
-                        {#if drawingMode === 'fabric'}
-                            <div class="drawing-layer fabric-layer" style="width: {pdfWidth}px; height: {pdfHeight}px; pointer-events: {isPanning ? 'none' : 'auto'};">
-                                <canvas id="fab-canvas"></canvas>
-                            </div>
-                        {/if}
+                            {#if currentPoints.length > 0}
+                                <path
+                                    d={getSvgPathFromStroke(window.perfectFreehand.getStroke(currentPoints, { size: activeTool === 'highlighter' ? strokeSize * 3 : strokeSize, thinning: 0.5, smoothing: 0.5 }))}
+                                    fill={strokeColor}
+                                    opacity={activeTool === 'highlighter' ? 0.4 : 1.0}
+                                />
+                            {/if}
+                        </svg>
                     </div>
                 </div>
             </div>
 
+            <!-- Notes Block -->
             <div class="notes-block">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
                     <p class="section-label" style="font-size:0.75rem; margin:0;">LaTeX / Markdown Notes</p>
-                    <div style="display:flex; gap:10px;">
-                        <button class="btn {notesMode === 'text' ? 'primary' : 'secondary'} small-btn" style="padding:4px 8px; font-size:0.75rem;" on:click={() => notesMode = 'text'}>Text/LaTeX</button>
-                        <button class="btn {notesMode === 'scratchpad' ? 'primary' : 'secondary'} small-btn" style="padding:4px 8px; font-size:0.75rem;" on:click={() => notesMode = 'scratchpad'}>Scratchpad</button>
-                    </div>
                 </div>
 
                 <div style="display:flex; gap:15px; flex:1; min-height:0;">
-                    {#if notesMode === 'text'}
-                        <textarea bind:value={$editingTask.description} on:input={() => { saveEdit(); renderPreview(); }} placeholder="Type your notes here..."></textarea>
-                    {:else}
-                        <div class="notes-scratchpad-container" bind:this={notesPadRef} style="flex:1; background: var(--input-bg); border: 1px solid var(--border-color); border-radius:6px; position:relative; touch-action:none; overflow:hidden;">
-                            {#if notesPadWidth && notesPadHeight}
-                                <svg
-                                    style="width:{notesPadWidth}px; height:{notesPadHeight}px; cursor:crosshair; display:block;"
-                                    on:pointerdown={notesSvgDown}
-                                    on:pointermove={notesSvgMove}
-                                    on:pointerup={notesSvgUp}
-                                    on:pointerleave={notesSvgUp}
-                                >
-                                    {#each notesStrokes as stroke}
-                                        <path d={getSvgPathFromStroke(window.perfectFreehand.getStroke(stroke, { size: 6, thinning: 0.5, smoothing: 0.5 }))} fill="#3b82f6" />
-                                    {/each}
-                                    {#if notesCurrentPoints.length > 0}
-                                        <path d={getSvgPathFromStroke(window.perfectFreehand.getStroke(notesCurrentPoints, { size: 6, thinning: 0.5, smoothing: 0.5 }))} fill="#3b82f6" />
-                                    {/if}
-                                </svg>
-                            {/if}
-                            <div style="position:absolute; bottom:10px; right:10px; display:flex; gap:10px;">
-                                <button class="btn secondary small-btn" style="padding:6px;" on:click={clearNotesScratchpad}>🗑️ Clear</button>
-                                <button class="btn primary small-btn" style="padding:6px;" on:click={insertScratchpadToNotes}>➕ Insert to Notes</button>
-                            </div>
-                        </div>
-                    {/if}
+                    <textarea bind:value={$editingTask.description} on:input={() => { saveEdit(); renderPreview(); }} placeholder="Type your notes here..."></textarea>
                     <div id="md-preview" class="markdown-body"></div>
                 </div>
             </div>
@@ -556,32 +685,37 @@
     .study-workspace { display: flex; flex-direction: column; flex: 1; min-height: 0; }
     .study-layout-container { display: flex; gap: 20px; width: 100%; flex: 1; transition: flex 0.3s ease; min-height: 0; }
 
-    .study-sidebar { width: 280px; flex-shrink: 0; display: flex; flex-direction: column; background: var(--sidebar-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 15px; box-sizing: border-box; overflow: hidden; }
-    .pane-header { font-size: 0.8rem; font-weight: bold; color: #666; text-transform: uppercase; letter-spacing: 1px; padding-bottom: 6px; border-bottom: 1px solid var(--border-color); margin-bottom: 15px; }
-    .audio-controls { display: flex; gap: 10px; margin-bottom: 15px; }
+    .study-sidebar { width: 300px; flex-shrink: 0; display: flex; flex-direction: column; background: var(--sidebar-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 15px; box-sizing: border-box; overflow: hidden; }
+    .pane-header { font-size: 0.8rem; font-weight: bold; color: #666; text-transform: uppercase; letter-spacing: 1px; padding-bottom: 6px; border-bottom: 1px solid var(--border-color); margin-bottom: 12px; }
+    .audio-controls { display: flex; gap: 10px; margin-bottom: 12px; }
     .record-btn { background: var(--danger-bg); color: var(--text-color); }
-    .record-btn:hover { background: #f43f5e; /* hover state */ }
+    .record-btn:hover { background: #f43f5e; }
     .stop-btn { background: var(--badge-bg); color: var(--text-color); }
-    .stop-btn:hover { background: #64748b; /* hover state */ }
+    .stop-btn:hover { background: #64748b; }
     .audio-player { width: 100%; height: 35px; border-radius: 4px; }
 
-    .transcript-box { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-    .transcription-box { flex: 1; background: var(--input-bg); border: 1px solid #1e293b; color: #94a3b8; padding: 12px; border-radius: 6px; font-family: inherit; resize: none; width: 100%; box-sizing: border-box; line-height: 1.5; outline: none;}
+    .transcript-box { height: 120px; display: flex; flex-direction: column; min-height: 0; }
+    .transcription-box { flex: 1; background: var(--input-bg); border: 1px solid var(--border-color); color: #94a3b8; padding: 10px; border-radius: 6px; font-family: inherit; resize: none; width: 100%; box-sizing: border-box; line-height: 1.4; outline: none; font-size: 0.8rem; }
     .transcription-box:focus { border-color: var(--btn-primary-bg); }
+
+    .timeline-item { transition: all 0.2s ease; }
+    .timeline-item:hover { background: var(--border-color) !important; }
+    .timeline-item.active { border-color: var(--btn-primary-bg) !important; background: var(--border-color) !important; font-weight: bold; }
 
     .study-main-workspace { flex: 1; display: flex; flex-direction: column; gap: 15px; min-width: 0; overflow: hidden; }
     .pdf-panel { flex: 3; display: flex; flex-direction: column; background: var(--panel-bg); border-radius: 8px; border: 1px solid var(--border-color); overflow: hidden; min-height: 0; }
-    .panel-tools { padding: 12px; background: var(--sidebar-bg); border-bottom: 1px solid var(--border-color); display: flex; justify-content: center;}
     .pdf-nav { display: flex; align-items: center; gap: 15px; }
-    .pdf-nav button { background: var(--input-bg); color: var(--text-color); border: 1px solid var(--border-color); padding: 6px 15px; border-radius: 4px; font-weight: bold; cursor: pointer; }
+    .pdf-nav button { background: var(--input-bg); color: var(--text-color); border: 1px solid var(--border-color); padding: 4px 12px; border-radius: 4px; font-weight: bold; cursor: pointer; font-size:0.8rem; }
+
+    .tool-btn { background: var(--input-bg); color: var(--text-color); border: 1px solid var(--border-color); padding: 4px 10px; border-radius: 4px; font-size: 0.8rem; cursor: pointer; transition: 0.15s; }
+    .tool-btn.active { background: var(--btn-primary-bg); font-weight: bold; border-color: var(--btn-primary-bg); }
 
     .canvas-container { flex: 1; overflow: hidden; display: flex; justify-content: center; align-items: center; padding: 15px; background: var(--input-bg); cursor: grab;}
     .canvas-container:active { cursor: grabbing; }
-    .pdf-base-layer { display: block; background: var(--container-bg); box-shadow: 0 4px 20px rgba(0,0,0,0.8); border-radius: 4px; max-width: 100%; object-fit: contain; }
+    .pdf-base-layer { display: block; background: #ffffff; box-shadow: 0 4px 20px rgba(0,0,0,0.5); border-radius: 4px; max-width: 100%; object-fit: contain; }
 
     .drawing-layer { position: absolute; top: 0; left: 0; touch-action: none; z-index: 10; }
     .svg-layer { z-index: 11; }
-    .fabric-layer { z-index: 12; }
 
     .notes-block { flex: 2; display: flex; flex-direction: column; background: var(--sidebar-bg); padding: 15px; border-radius: 8px; border: 1px solid var(--border-color); min-height: 0; }
     .notes-block textarea { flex: 1; background: var(--input-bg); color: var(--text-color); border: 1px solid var(--border-color); padding: 15px; border-radius: 6px; font-family: inherit; resize: none; line-height: 1.5; outline: none; }
