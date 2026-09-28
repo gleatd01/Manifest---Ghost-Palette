@@ -35,6 +35,7 @@
     let activePlaybackPage = 1;
     let currentAudioTime = 0;
     let activeStrokeId = null;
+    let saveQueue = Promise.resolve();
 
     $: pageStrokes = allStrokes.filter(s => (s.page || 1) === pageNum);
 
@@ -102,20 +103,23 @@
      * Persists the current editingTask state to the server.
      */
     async function saveEdit() {
-        $editingTask.handwriting_data = JSON.stringify(allStrokes);
-        await fetch(`/api/tasks/${$editingTask.id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                ...$editingTask,
-                dueDate: $editingTask.due_date,
-                predecessors: $editingTask.predecessors,
-                assignees: $editingTask.assignees,
-                reminderTime: $editingTask.reminder_time,
-                reminderFrequency: $editingTask.reminder_frequency
-            })
+        saveQueue = saveQueue.catch(() => {}).then(async () => {
+            $editingTask.handwriting_data = JSON.stringify(allStrokes);
+            await fetch(`/api/tasks/${$editingTask.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    ...$editingTask,
+                    dueDate: $editingTask.due_date,
+                    predecessors: $editingTask.predecessors,
+                    assignees: $editingTask.assignees,
+                    reminderTime: $editingTask.reminder_time,
+                    reminderFrequency: $editingTask.reminder_frequency
+                })
+            });
+            await loadTasks();
         });
-        loadTasks();
+        return saveQueue;
     }
 
     // --- INFINITE CANVAS & HANDWRITING LOGIC ---
@@ -131,8 +135,8 @@
             minZoom: 0.5,
             beforeMouseDown: function(e) {
                 // Allow panzoom ONLY on touch (finger gesture) OR when activeTool is explicitly 'pan'
+                if (e.pointerType === 'touch') return false;
                 if (e.pointerType === 'pen') return true; // Pen always draws, bypass panzoom
-                if (e.pointerType === 'touch' && activeTool !== 'pen' && activeTool !== 'highlighter') return false;
                 if (activeTool === 'pan') return false;
                 return true; // Prevent panzoom on stylus/mouse draw
             }
@@ -193,8 +197,8 @@
     }
 
     function svgDown(e) {
-        // Finger touch handling: If user uses finger touch and tool is pan or not pen, do not draw
-        if (e.pointerType === 'touch' && activeTool === 'pan') return;
+        // Finger touch always pans/zooms
+        if (e.pointerType === 'touch') return;
 
         e.currentTarget.setPointerCapture(e.pointerId);
         const pt = [e.offsetX, e.offsetY, e.pressure || 0.5];
@@ -208,13 +212,15 @@
     }
 
     function svgMove(e) {
-        if (e.buttons !== 1 || currentPoints.length === 0) return;
+        if (e.buttons !== 1) return;
         const pt = [e.offsetX, e.offsetY, e.pressure || 0.5];
 
         if (activeTool === 'eraser') {
             eraseStrokeAt(pt[0], pt[1]);
             return;
         }
+
+        if (currentPoints.length === 0) return;
 
         currentPoints = [...currentPoints, pt];
     }
@@ -559,7 +565,6 @@
                         {/if}
 
                         <div style="display:flex; gap:8px; align-items:center;">
-                            <button class="btn secondary small-btn" style="padding:4px 8px; font-size:0.8rem;" on:click={addBlankSpace}>➕ Add Blank Space</button>
                             <button class="btn secondary small-btn" style="padding:4px 8px; font-size:0.8rem;" on:click={clearHandwriting}>🗑️ Clear Ink</button>
                             <button class="btn primary small-btn" style="padding:4px 8px; font-size:0.8rem;" on:click={insertPdfSvgToNotes}>➕ Insert Ink to Notes</button>
                         </div>
@@ -580,6 +585,7 @@
                                 {#each ['#3b82f6', '#ef4444', '#10b981', '#eab308', '#ffffff', '#000000'] as color}
                                     <button
                                         style="width:18px; height:18px; border-radius:50%; background:{color}; border: {strokeColor === color ? '2px solid white' : '1px solid #64748b'}; cursor:pointer; padding:0;"
+                                        aria-label={`Set ink color ${color}`}
                                         on:click={() => strokeColor = color}
                                     ></button>
                                 {/each}
