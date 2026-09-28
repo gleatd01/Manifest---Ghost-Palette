@@ -13,6 +13,7 @@ export const pool = new Pool({
 });
 
 let isPgConnected = false;
+const allowInMemoryFallback = process.env.ENABLE_IN_MEMORY_DB === 'true' && process.env.NODE_ENV !== 'production';
 const inMemoryDb = {
     tasks: [
         {
@@ -43,9 +44,13 @@ pool.query = async (text, params) => {
         isPgConnected = true;
         return res;
     } catch (err) {
+        if (!allowInMemoryFallback) {
+            throw err;
+        }
         const queryText = (typeof text === 'string' ? text : (text && text.text) || '').toLowerCase();
         if (queryText.includes('select * from tasks')) {
-            return { rows: inMemoryDb.tasks };
+            const userId = params?.[0];
+            return { rows: inMemoryDb.tasks.filter(task => task.user_id == userId) };
         }
         if (queryText.includes('insert into tasks')) {
             const newTask = {
@@ -62,8 +67,9 @@ pool.query = async (text, params) => {
             return { rows: [newTask] };
         }
         if (queryText.includes('update tasks set')) {
-            const id = params[params.length - 1];
-            const taskIndex = inMemoryDb.tasks.findIndex(t => t.id == id);
+            const userId = params[params.length - 1];
+            const id = params[params.length - 2];
+            const taskIndex = inMemoryDb.tasks.findIndex(t => t.id == id && t.user_id == userId);
             if (taskIndex !== -1) {
                 inMemoryDb.tasks[taskIndex] = {
                     ...inMemoryDb.tasks[taskIndex],
@@ -90,7 +96,8 @@ pool.query = async (text, params) => {
         }
         if (queryText.includes('delete from tasks')) {
             const id = params[0];
-            inMemoryDb.tasks = inMemoryDb.tasks.filter(t => t.id != id);
+            const userId = params[1];
+            inMemoryDb.tasks = inMemoryDb.tasks.filter(t => !(t.id == id && t.user_id == userId));
             return { rows: [] };
         }
         return { rows: [] };

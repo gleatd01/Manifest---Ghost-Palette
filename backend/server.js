@@ -28,7 +28,7 @@ const PORT = process.env.PORT || 3000;
 
 app.set('io', io); // make io available in routes via req.app.get('io')
 
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(session({ secret: process.env.SESSION_SECRET || 'ghost_palette_secret_key', resave: false, saveUninitialized: false }));
 
