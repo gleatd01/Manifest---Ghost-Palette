@@ -17,6 +17,7 @@ import tasksRoutes from './routes/tasks.js';
 import topicsRoutes from './routes/topics.js';
 import settingsRoutes from './routes/settings.js';
 import integrationsRoutes from './routes/integrations.js';
+import adminRoutes from './routes/admin.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -43,6 +44,7 @@ app.use('/api/tasks', tasksRoutes);
 app.use('/api/topics', topicsRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api', integrationsRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Update path to serve frontend build output from the correct directory relative to backend
 app.use(express.static(path.join(__dirname, '../frontend/dist')));

@@ -15,6 +15,7 @@
         agenda: () => import('./views/AgendaView.svelte'),
         gantt: () => import('./views/GanttView.svelte'),
         settings: () => import('./views/SettingsView.svelte'),
+        admin: () => import('./views/AdminView.svelte'),
     };
 
     let activeComponent = null;

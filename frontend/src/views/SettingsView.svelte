@@ -7,6 +7,7 @@
     let newKeyName = '';
     let generatedCleartextKey = '';
     let showKeyModal = false;
+    let showSwaggerModal = false;
 
     // Fetch keys when the component mounts
     onMount(() => {
@@ -52,7 +53,12 @@
 <TopicManager />
 
 <div class="settings-card" style="margin-top: 20px;">
-    <h2>API Integrations (Power Automate)</h2>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+        <h2 style="margin: 0;">API Integrations (Power Automate)</h2>
+        <button class="btn secondary" style="font-size:0.85rem;" on:click={() => showSwaggerModal = true}>
+            📖 Open API Documentation (Swagger)
+        </button>
+    </div>
     <div class="task-input">
         <input type="text" bind:value={newKeyName} placeholder="Key description..." style="padding:10px; background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); border-radius:4px; flex:1;" />
         <button class="btn primary" on:click={generateKey}>Generate</button>
@@ -79,6 +85,21 @@
     </div>
 {/if}
 
+{#if showSwaggerModal}
+    <div class="modal-overlay" style="z-index: 250;" on:click={() => showSwaggerModal = false}>
+        <div class="modal swagger-modal" on:click|stopPropagation>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <h2 style="margin: 0;">API Documentation (Swagger)</h2>
+                <div style="display:flex; gap:10px;">
+                    <a href="/api-docs" target="_blank" rel="noopener noreferrer" class="btn secondary" style="font-size:0.8rem; text-decoration:none;">Open Full Page ↗</a>
+                    <button class="btn secondary" style="font-size:0.8rem;" on:click={() => showSwaggerModal = false}>Close ✕</button>
+                </div>
+            </div>
+            <iframe src="/api-docs" title="Swagger API Documentation" style="width: 100%; height: 70vh; border: 1px solid var(--border-color); border-radius: 6px; background: #fff;"></iframe>
+        </div>
+    </div>
+{/if}
+
 <style>
     .settings-card { background: var(--modal-bg); padding: 20px; border-radius: 8px; border: 1px solid var(--border-color); transition: background 0.3s ease;}
 
@@ -89,5 +110,6 @@
 
     .modal-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 100; overflow-y: auto;}
     .modal { background: var(--modal-bg); padding: 25px; border-radius: 8px; width: 450px; border: 1px solid var(--border-color); margin: auto; transition: background 0.3s ease;}
+    .swagger-modal { width: 90vw; max-width: 1100px; max-height: 90vh; }
     .full-width { width: 100%; box-sizing: border-box; }
 </style>
