@@ -96,7 +96,7 @@
         if(isRecording) stopRecording();
         isStudyMode.set(false);
         isHeaderCollapsed.set(false);
-        setTimeout(() => editingTask.set(null), 10);
+        editingTask.set(null);
     }
 
     /**
@@ -134,9 +134,11 @@
             maxZoom: 5,
             minZoom: 0.5,
             beforeMouseDown: function(e) {
-                // Allow panzoom ONLY on touch (finger gesture) OR when activeTool is explicitly 'pan'
-                if (e.pointerType === 'touch') return false;
-                if (e.pointerType === 'pen') return true; // Pen always draws, bypass panzoom
+                // Allow panzoom ONLY on finger touch OR when activeTool is explicitly 'pan'
+                // Apple Pencil / Stylus ('pen') or drawing tool clicks bypass panzoom to draw ink
+                const isStylusOrPen = e.pointerType === 'pen' || e.touchType === 'stylus' || (e.touches && e.touches[0] && e.touches[0].touchType === 'stylus');
+                if (isStylusOrPen) return true; // Pen always draws, bypass panzoom
+                if (e.pointerType === 'touch') return false; // Finger touch pans/zooms
                 if (activeTool === 'pan') return false;
                 return true; // Prevent panzoom on stylus/mouse draw
             }
@@ -196,12 +198,34 @@
         return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
     }
 
-    function svgDown(e) {
-        // Finger touch always pans/zooms
-        if (e.pointerType === 'touch') return;
+    function getPointerPos(e) {
+        const svg = e.currentTarget;
+        const rect = svg.getBoundingClientRect();
+        // Calculate relative coordinates in SVG user space safely for Safari / iOS WebKit
+        const clientX = e.clientX !== undefined ? e.clientX : (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
+        const clientY = e.clientY !== undefined ? e.clientY : (e.touches && e.touches[0] ? e.touches[0].clientY : 0);
+        const scaleX = pdfWidth / (rect.width || pdfWidth);
+        const totalHeight = pdfHeight + extraPageHeight;
+        const scaleY = totalHeight / (rect.height || totalHeight);
+        const x = (clientX - rect.left) * scaleX;
+        const y = (clientY - rect.top) * scaleY;
+        const pressure = e.pressure !== undefined && e.pressure > 0 ? e.pressure : 0.5;
+        return [x, y, pressure];
+    }
 
-        e.currentTarget.setPointerCapture(e.pointerId);
-        const pt = [e.offsetX, e.offsetY, e.pressure || 0.5];
+    function svgDown(e) {
+        const isPen = e.pointerType === 'pen' || e.touchType === 'stylus' || (e.touches && e.touches[0] && e.touches[0].touchType === 'stylus');
+        // Finger touch always pans/zooms unless activeTool is explicitly drawing/erasing with stylus/mouse
+        if (e.pointerType === 'touch' && !isPen) return;
+
+        if (e.preventDefault) e.preventDefault();
+        try {
+            if (e.pointerId !== undefined && e.currentTarget.setPointerCapture) {
+                e.currentTarget.setPointerCapture(e.pointerId);
+            }
+        } catch(err) {}
+
+        const pt = getPointerPos(e);
 
         if (activeTool === 'eraser') {
             eraseStrokeAt(pt[0], pt[1]);
@@ -212,16 +236,21 @@
     }
 
     function svgMove(e) {
-        if (e.buttons !== 1) return;
-        const pt = [e.offsetX, e.offsetY, e.pressure || 0.5];
+        const isPen = e.pointerType === 'pen' || e.touchType === 'stylus' || (e.touches && e.touches[0] && e.touches[0].touchType === 'stylus');
+        if (e.pointerType === 'touch' && !isPen && currentPoints.length === 0) return;
 
         if (activeTool === 'eraser') {
-            eraseStrokeAt(pt[0], pt[1]);
+            if (e.buttons === 1 || isPen) {
+                const pt = getPointerPos(e);
+                eraseStrokeAt(pt[0], pt[1]);
+            }
             return;
         }
 
         if (currentPoints.length === 0) return;
+        if (e.preventDefault) e.preventDefault();
 
+        const pt = getPointerPos(e);
         currentPoints = [...currentPoints, pt];
     }
 
@@ -609,11 +638,12 @@
                         <!-- Vector Handwriting Layer -->
                         <svg
                             class="drawing-layer svg-layer"
-                            style="width: {pdfWidth}px; height: {pdfHeight}px; pointer-events: {activeTool === 'pan' ? 'none' : 'auto'}; cursor: {activeTool === 'eraser' ? 'cell' : 'crosshair'};"
+                            style="width: {pdfWidth}px; height: {pdfHeight + extraPageHeight}px; pointer-events: {activeTool === 'pan' ? 'none' : 'auto'}; cursor: {activeTool === 'eraser' ? 'cell' : 'crosshair'}; touch-action: {activeTool === 'pan' ? 'auto' : 'none'};"
                             on:pointerdown={svgDown}
                             on:pointermove={svgMove}
                             on:pointerup={svgUp}
                             on:pointerleave={svgUp}
+                            on:pointercancel={svgUp}
                         >
                             {#each pageStrokes as stroke}
                                 <path
