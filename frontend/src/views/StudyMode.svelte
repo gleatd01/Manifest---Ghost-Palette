@@ -6,6 +6,7 @@
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
     // --- Study Mode Local State ---
+    let activeTab = 'handwriting'; // 'handwriting' or 'markdown'
     let activeTool = 'pen'; // 'pen', 'highlighter', 'eraser', 'pan'
     let strokeColor = '#3b82f6';
     let strokeSize = 5;
@@ -571,109 +572,133 @@
             </div>
         </div>
 
-        <!-- MAIN WORKSPACE: PDF & Canvas Handwriting Workspace & Notes -->
+        <!-- MAIN WORKSPACE: PDF & Canvas Handwriting Workspace & Notes Tabs -->
         <div class="study-main-workspace">
-            <div class="pdf-panel">
-                <!-- Toolbar for PDF / Handwriting Canvas -->
-                <div class="panel-tools" style="display:flex; flex-direction:column; gap:8px; padding:10px; background:var(--sidebar-bg); border-bottom:1px solid var(--border-color);">
-                    <div style="display:flex; justify-content:space-between; align-items:center; width:100%;">
-                        {#if !$editingTask.pdf_url}
-                            <div style="display:flex; gap:10px; align-items:center;">
-                                <span style="font-weight:bold; font-size:0.9rem; color:var(--text-color);">📝 Blank Paper Canvas</span>
-                                <label class="upload-btn" style="padding:4px 10px; font-size:0.8rem;">
-                                    Upload PDF
-                                    <input type="file" accept="application/pdf" style="display:none;" on:change={handlePdfUpload} />
-                                </label>
-                            </div>
-                        {:else}
-                            <div class="pdf-nav">
-                                <button on:click={() => renderPage(pageNum-1)} disabled={pageNum<=1}>Prev Slide</button>
-                                <span style="font-weight: bold; color: #a5b4fc;">Slide {pageNum} {pdfDoc ? `/ ${pdfDoc.numPages}` : ''}</span>
-                                <button on:click={() => renderPage(pageNum+1)} disabled={!pdfDoc || pageNum >= pdfDoc.numPages}>Next Slide</button>
-                            </div>
-                        {/if}
+            <!-- TAB NAVIGATION -->
+            <div class="tab-nav">
+                <button
+                    class="tab-btn {activeTab === 'handwriting' ? 'active' : ''}"
+                    on:click={() => activeTab = 'handwriting'}
+                >
+                    ✍️ Handwritten Notes
+                </button>
+                <button
+                    class="tab-btn {activeTab === 'markdown' ? 'active' : ''}"
+                    on:click={() => {
+                        activeTab = 'markdown';
+                        tick().then(renderPreview);
+                    }}
+                >
+                    📝 LaTeX / Markdown Notes
+                </button>
+            </div>
 
-                        <div style="display:flex; gap:8px; align-items:center;">
-                            <button class="btn secondary small-btn" style="padding:4px 8px; font-size:0.8rem;" on:click={clearHandwriting}>🗑️ Clear Ink</button>
-                            <button class="btn primary small-btn" style="padding:4px 8px; font-size:0.8rem;" on:click={insertPdfSvgToNotes}>➕ Insert Ink to Notes</button>
-                        </div>
-                    </div>
-
-                    <!-- Stylus & Drawing Controls Toolbar -->
-                    <div class="hw-tools" style="display:flex; gap:12px; align-items:center; border-top: 1px solid var(--border-color); padding-top: 8px;">
-                        <div style="display:flex; gap:4px;">
-                            <button class="tool-btn {activeTool === 'pen' ? 'active' : ''}" on:click={() => activeTool = 'pen'} title="Pen (Apple Pencil)">🖊️ Pen</button>
-                            <button class="tool-btn {activeTool === 'highlighter' ? 'active' : ''}" on:click={() => activeTool = 'highlighter'} title="Highlighter">🖍️ Highlight</button>
-                            <button class="tool-btn {activeTool === 'eraser' ? 'active' : ''}" on:click={() => activeTool = 'eraser'} title="Eraser">🧹 Eraser</button>
-                            <button class="tool-btn {activeTool === 'pan' ? 'active' : ''}" on:click={() => activeTool = 'pan'} title="Pan / Zoom Workspace">🖐 Pan/Zoom</button>
-                        </div>
-
-                        {#if activeTool !== 'eraser' && activeTool !== 'pan'}
-                            <div style="display:flex; gap:6px; align-items:center; margin-left:10px;">
-                                <span style="font-size:0.75rem;">Color:</span>
-                                {#each ['#3b82f6', '#ef4444', '#10b981', '#eab308', '#ffffff', '#000000'] as color}
-                                    <button
-                                        style="width:18px; height:18px; border-radius:50%; background:{color}; border: {strokeColor === color ? '2px solid white' : '1px solid #64748b'}; cursor:pointer; padding:0;"
-                                        aria-label={`Set ink color ${color}`}
-                                        on:click={() => strokeColor = color}
-                                    ></button>
-                                {/each}
-                            </div>
-
-                            <div style="display:flex; gap:6px; align-items:center; margin-left:10px;">
-                                <span style="font-size:0.75rem;">Size:</span>
-                                <input type="range" min="2" max="20" bind:value={strokeSize} style="width:70px;" />
-                            </div>
-                        {/if}
-
-                        <span style="font-size:0.7rem; color:#94a3b8; margin-left:auto;">💡 Tip: Finger touch pans & zooms, Apple Pencil writes automatically!</span>
-                    </div>
-                </div>
-
-                <!-- Canvas Workspace -->
-                <div class="canvas-container" bind:this={pdfContainerRef}>
-                    <div id="zoom-wrapper" style="position: relative; transform-origin: 0 0;">
-                        <canvas bind:this={canvasRef} class="pdf-base-layer"></canvas>
-
-                        <!-- Vector Handwriting Layer -->
-                        <svg
-                            class="drawing-layer svg-layer"
-                            style="width: {pdfWidth}px; height: {pdfHeight + extraPageHeight}px; pointer-events: {activeTool === 'pan' ? 'none' : 'auto'}; cursor: {activeTool === 'eraser' ? 'cell' : 'crosshair'}; touch-action: {activeTool === 'pan' ? 'auto' : 'none'};"
-                            on:pointerdown={svgDown}
-                            on:pointermove={svgMove}
-                            on:pointerup={svgUp}
-                            on:pointerleave={svgUp}
-                            on:pointercancel={svgUp}
-                        >
-                            {#each pageStrokes as stroke}
-                                <path
-                                    d={getSvgPathFromStroke(window.perfectFreehand.getStroke(stroke.points, { size: stroke.size || 5, thinning: 0.5, smoothing: 0.5 }))}
-                                    fill={stroke.color || '#3b82f6'}
-                                    opacity={stroke.isHighlighter ? 0.4 : 1.0}
-                                />
-                            {/each}
-
-                            {#if currentPoints.length > 0}
-                                <path
-                                    d={getSvgPathFromStroke(window.perfectFreehand.getStroke(currentPoints, { size: activeTool === 'highlighter' ? strokeSize * 3 : strokeSize, thinning: 0.5, smoothing: 0.5 }))}
-                                    fill={strokeColor}
-                                    opacity={activeTool === 'highlighter' ? 0.4 : 1.0}
-                                />
+            <!-- TAB CONTENT: Handwritten Notes -->
+            <div class="tab-content {activeTab === 'handwriting' ? 'active' : ''}">
+                <div class="pdf-panel">
+                    <!-- Toolbar for PDF / Handwriting Canvas -->
+                    <div class="panel-tools" style="display:flex; flex-direction:column; gap:8px; padding:10px; background:var(--sidebar-bg); border-bottom:1px solid var(--border-color);">
+                        <div style="display:flex; justify-content:space-between; align-items:center; width:100%;">
+                            {#if !$editingTask.pdf_url}
+                                <div style="display:flex; gap:10px; align-items:center;">
+                                    <span style="font-weight:bold; font-size:0.9rem; color:var(--text-color);">📝 Blank Paper Canvas</span>
+                                    <label class="upload-btn" style="padding:4px 10px; font-size:0.8rem;">
+                                        Upload PDF
+                                        <input type="file" accept="application/pdf" style="display:none;" on:change={handlePdfUpload} />
+                                    </label>
+                                </div>
+                            {:else}
+                                <div class="pdf-nav">
+                                    <button on:click={() => renderPage(pageNum-1)} disabled={pageNum<=1}>Prev Slide</button>
+                                    <span style="font-weight: bold; color: #a5b4fc;">Slide {pageNum} {pdfDoc ? `/ ${pdfDoc.numPages}` : ''}</span>
+                                    <button on:click={() => renderPage(pageNum+1)} disabled={!pdfDoc || pageNum >= pdfDoc.numPages}>Next Slide</button>
+                                </div>
                             {/if}
-                        </svg>
+
+                            <div style="display:flex; gap:8px; align-items:center;">
+                                <button class="btn secondary small-btn" style="padding:4px 8px; font-size:0.8rem;" on:click={clearHandwriting}>🗑️ Clear Ink</button>
+                                <button class="btn primary small-btn" style="padding:4px 8px; font-size:0.8rem;" on:click={insertPdfSvgToNotes}>➕ Insert Ink to Notes</button>
+                            </div>
+                        </div>
+
+                        <!-- Stylus & Drawing Controls Toolbar -->
+                        <div class="hw-tools" style="display:flex; gap:12px; align-items:center; border-top: 1px solid var(--border-color); padding-top: 8px;">
+                            <div style="display:flex; gap:4px;">
+                                <button class="tool-btn {activeTool === 'pen' ? 'active' : ''}" on:click={() => activeTool = 'pen'} title="Pen (Apple Pencil)">🖊️ Pen</button>
+                                <button class="tool-btn {activeTool === 'highlighter' ? 'active' : ''}" on:click={() => activeTool = 'highlighter'} title="Highlighter">🖍️ Highlight</button>
+                                <button class="tool-btn {activeTool === 'eraser' ? 'active' : ''}" on:click={() => activeTool = 'eraser'} title="Eraser">🧹 Eraser</button>
+                                <button class="tool-btn {activeTool === 'pan' ? 'active' : ''}" on:click={() => activeTool = 'pan'} title="Pan / Zoom Workspace">🖐 Pan/Zoom</button>
+                            </div>
+
+                            {#if activeTool !== 'eraser' && activeTool !== 'pan'}
+                                <div style="display:flex; gap:6px; align-items:center; margin-left:10px;">
+                                    <span style="font-size:0.75rem;">Color:</span>
+                                    {#each ['#3b82f6', '#ef4444', '#10b981', '#eab308', '#ffffff', '#000000'] as color}
+                                        <button
+                                            style="width:18px; height:18px; border-radius:50%; background:{color}; border: {strokeColor === color ? '2px solid white' : '1px solid #64748b'}; cursor:pointer; padding:0;"
+                                            aria-label={`Set ink color ${color}`}
+                                            on:click={() => strokeColor = color}
+                                        ></button>
+                                    {/each}
+                                </div>
+
+                                <div style="display:flex; gap:6px; align-items:center; margin-left:10px;">
+                                    <span style="font-size:0.75rem;">Size:</span>
+                                    <input type="range" min="2" max="20" bind:value={strokeSize} style="width:70px;" />
+                                </div>
+                            {/if}
+
+                            <span style="font-size:0.7rem; color:#94a3b8; margin-left:auto;">💡 Tip: Finger touch pans & zooms, Apple Pencil writes automatically!</span>
+                        </div>
+                    </div>
+
+                    <!-- Canvas Workspace -->
+                    <div class="canvas-container" bind:this={pdfContainerRef}>
+                        <div id="zoom-wrapper" style="position: relative; transform-origin: 0 0;">
+                            <canvas bind:this={canvasRef} class="pdf-base-layer"></canvas>
+
+                            <!-- Vector Handwriting Layer -->
+                            <svg
+                                class="drawing-layer svg-layer"
+                                style="width: {pdfWidth}px; height: {pdfHeight + extraPageHeight}px; pointer-events: {activeTool === 'pan' ? 'none' : 'auto'}; cursor: {activeTool === 'eraser' ? 'cell' : 'crosshair'}; touch-action: {activeTool === 'pan' ? 'auto' : 'none'};"
+                                on:pointerdown={svgDown}
+                                on:pointermove={svgMove}
+                                on:pointerup={svgUp}
+                                on:pointerleave={svgUp}
+                                on:pointercancel={svgUp}
+                            >
+                                {#each pageStrokes as stroke}
+                                    <path
+                                        d={getSvgPathFromStroke(window.perfectFreehand.getStroke(stroke.points, { size: stroke.size || 5, thinning: 0.5, smoothing: 0.5 }))}
+                                        fill={stroke.color || '#3b82f6'}
+                                        opacity={stroke.isHighlighter ? 0.4 : 1.0}
+                                    />
+                                {/each}
+
+                                {#if currentPoints.length > 0}
+                                    <path
+                                        d={getSvgPathFromStroke(window.perfectFreehand.getStroke(currentPoints, { size: activeTool === 'highlighter' ? strokeSize * 3 : strokeSize, thinning: 0.5, smoothing: 0.5 }))}
+                                        fill={strokeColor}
+                                        opacity={activeTool === 'highlighter' ? 0.4 : 1.0}
+                                    />
+                                {/if}
+                            </svg>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <!-- Notes Block -->
-            <div class="notes-block">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-                    <p class="section-label" style="font-size:0.75rem; margin:0;">LaTeX / Markdown Notes</p>
-                </div>
+            <!-- TAB CONTENT: LaTeX / Markdown Notes -->
+            <div class="tab-content {activeTab === 'markdown' ? 'active' : ''}">
+                <div class="notes-block">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                        <p class="section-label" style="font-size:0.75rem; margin:0;">LaTeX / Markdown Notes</p>
+                    </div>
 
-                <div style="display:flex; gap:15px; flex:1; min-height:0;">
-                    <textarea bind:value={$editingTask.description} on:input={() => { saveEdit(); renderPreview(); }} placeholder="Type your notes here..."></textarea>
-                    <div id="md-preview" class="markdown-body"></div>
+                    <div style="display:flex; gap:15px; flex:1; min-height:0;">
+                        <textarea bind:value={$editingTask.description} on:input={() => { saveEdit(); renderPreview(); }} placeholder="Type your notes here..."></textarea>
+                        <div id="md-preview" class="markdown-body"></div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -703,7 +728,15 @@
     .timeline-item.active { border-color: var(--btn-primary-bg) !important; background: var(--border-color) !important; font-weight: bold; }
 
     .study-main-workspace { flex: 1; display: flex; flex-direction: column; gap: 15px; min-width: 0; overflow: hidden; }
-    .pdf-panel { flex: 3; display: flex; flex-direction: column; background: var(--panel-bg); border-radius: 8px; border: 1px solid var(--border-color); overflow: hidden; min-height: 0; }
+    .tab-nav { display: flex; gap: 10px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px; }
+    .tab-btn { background: var(--input-bg); color: var(--text-color); border: 1px solid var(--border-color); padding: 8px 16px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: all 0.2s ease; font-size: 0.9rem; }
+    .tab-btn:hover { background: var(--border-color); }
+    .tab-btn.active { background: var(--btn-primary-bg); border-color: var(--btn-primary-bg); color: var(--text-color); }
+
+    .tab-content { display: none; flex: 1; flex-direction: column; min-height: 0; }
+    .tab-content.active { display: flex; }
+
+    .pdf-panel { flex: 1; display: flex; flex-direction: column; background: var(--panel-bg); border-radius: 8px; border: 1px solid var(--border-color); overflow: hidden; min-height: 0; }
     .pdf-nav { display: flex; align-items: center; gap: 15px; }
     .pdf-nav button { background: var(--input-bg); color: var(--text-color); border: 1px solid var(--border-color); padding: 4px 12px; border-radius: 4px; font-weight: bold; cursor: pointer; font-size:0.8rem; }
 
@@ -717,7 +750,7 @@
     .drawing-layer { position: absolute; top: 0; left: 0; touch-action: none; z-index: 10; }
     .svg-layer { z-index: 11; }
 
-    .notes-block { flex: 2; display: flex; flex-direction: column; background: var(--sidebar-bg); padding: 15px; border-radius: 8px; border: 1px solid var(--border-color); min-height: 0; }
+    .notes-block { flex: 1; display: flex; flex-direction: column; background: var(--sidebar-bg); padding: 15px; border-radius: 8px; border: 1px solid var(--border-color); min-height: 0; }
     .notes-block textarea { flex: 1; background: var(--input-bg); color: var(--text-color); border: 1px solid var(--border-color); padding: 15px; border-radius: 6px; font-family: inherit; resize: none; line-height: 1.5; outline: none; }
     .notes-block textarea:focus { border-color: var(--btn-primary-bg); }
     .markdown-body { flex: 1; padding: 15px; background: var(--input-bg); border-radius: 6px; border: 1px solid var(--border-color); overflow-y: auto; line-height: 1.6; }
