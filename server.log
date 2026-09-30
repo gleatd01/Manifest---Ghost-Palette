@@ -1,30 +1,37 @@
-(node:216762) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
-(Use `node --trace-deprecation ...` to show where the warning was created)
-[v30.4 Handwriting] Server Running. Port: 3000
-DB Error: AggregateError [ECONNREFUSED]:
-    at /app/node_modules/pg-pool/index.js:45:11
-    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
-    at async pool.query (file:///app/backend/db/index.js:43:21)
-    at async initDB (file:///app/backend/db/index.js:109:9) {
-  code: 'ECONNREFUSED',
-  [errors]: [
-    Error: connect ECONNREFUSED ::1:5432
-        at createConnectionError (node:net:1678:14)
-        at afterConnectMultiple (node:net:1708:16) {
-      errno: -111,
-      code: 'ECONNREFUSED',
-      syscall: 'connect',
-      address: '::1',
-      port: 5432
-    },
-    Error: connect ECONNREFUSED 127.0.0.1:5432
-        at createConnectionError (node:net:1678:14)
-        at afterConnectMultiple (node:net:1708:16) {
-      errno: -111,
-      code: 'ECONNREFUSED',
-      syscall: 'connect',
-      address: '127.0.0.1',
-      port: 5432
-    }
-  ]
-}
+
+> manifest-ghost-palette@30.4.0 dev
+> concurrently "npm run dev:backend" "npm run dev:frontend"
+
+[0]
+[0] > manifest-ghost-palette@30.4.0 dev:backend
+[0] > nodemon backend/server.js
+[0]
+[1]
+[1] > manifest-ghost-palette@30.4.0 dev:frontend
+[1] > cd frontend && vite
+[1]
+[0] [33m[nodemon] 3.1.14[39m
+[0] [33m[nodemon] to restart at any time, enter `rs`[39m
+[0] [33m[nodemon] watching path(s): *.*[39m
+[0] [33m[nodemon] watching extensions: js,mjs,cjs,json[39m
+[0] [32m[nodemon] starting `node backend/server.js`[39m
+[0] [32m[nodemon] restarting due to changes...[39m
+[0] [32m[nodemon] starting `node backend/server.js`[39m
+[0] [32m[nodemon] restarting due to changes...[39m
+[1]
+[1]   VITE v5.4.21  ready in 730 ms
+[1]
+[1]   ➜  Local:   http://localhost:5173/
+[1]   ➜  Network: use --host to expose
+[0] [32m[nodemon] starting `node backend/server.js`[39m
+[0] (node:177314) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+[0] (Use `node --trace-deprecation ...` to show where the warning was created)
+[0] [v30.4 Handwriting] Server Running. Port: 3000
+[0] Database initialized.
+[1] 7:42:34 PM [vite-plugin-svelte] /app/frontend/src/components/TaskEditModal.svelte:133:16 A11y: A form label must be associated with a control.
+[1] 7:42:34 PM [vite-plugin-svelte] /app/frontend/src/components/TaskEditModal.svelte:137:16 A11y: A form label must be associated with a control.
+[1] 7:42:34 PM [vite-plugin-svelte] /app/frontend/src/components/TaskEditModal.svelte:153:16 A11y: A form label must be associated with a control.
+[1] 7:42:34 PM [vite-plugin-svelte] /app/frontend/src/components/TaskEditModal.svelte:227:16 A11y: A form label must be associated with a control.
+[1] 7:42:35 PM [vite-plugin-svelte] /app/frontend/src/views/ListView.svelte:97:4 A11y: A form label must be associated with a control.
+[1] 7:42:35 PM [vite-plugin-svelte] /app/frontend/src/views/ListView.svelte:111:12 A11y: visible, non-interactive elements with an on:click event must be accompanied by a keyboard event handler. Consider whether an interactive element such as <button type="button"> or <a> might be more appropriate. See https://svelte.dev/docs/accessibility-warnings#a11y-click-events-have-key-events for more details.
+[1] 7:42:35 PM [vite-plugin-svelte] /app/frontend/src/views/ListView.svelte:111:12 A11y: <div> with click handler must have an ARIA role
