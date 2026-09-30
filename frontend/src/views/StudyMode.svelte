@@ -1,6 +1,7 @@
 <script>
     import { onMount, tick } from 'svelte';
     import { editingTask, isStudyMode, isHeaderCollapsed, loadTasks } from '../stores/appStore.js';
+    import { getStroke } from 'perfect-freehand';
     import * as pdfjsLib from 'pdfjs-dist';
 
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -124,6 +125,12 @@
     }
 
     // --- INFINITE CANVAS & HANDWRITING LOGIC ---
+    function isStylusOrPen(e) {
+        const pType = e.pointerType;
+        const tType = e.touchType || (e.touches && e.touches[0] && e.touches[0].touchType);
+        return pType === 'pen' || tType === 'stylus' || (e.pressure !== undefined && e.pressure > 0 && e.pointerType !== 'mouse');
+    }
+
     function initPanzoom() {
         if (pzInstance) return;
         const wrapper = document.getElementById('zoom-wrapper');
@@ -135,13 +142,13 @@
             maxZoom: 5,
             minZoom: 0.5,
             beforeMouseDown: function(e) {
-                // Allow panzoom ONLY on finger touch OR when activeTool is explicitly 'pan'
-                // Apple Pencil / Stylus ('pen') or drawing tool clicks bypass panzoom to draw ink
-                const isStylusOrPen = e.pointerType === 'pen' || e.touchType === 'stylus' || (e.touches && e.touches[0] && e.touches[0].touchType === 'stylus');
-                if (isStylusOrPen) return true; // Pen always draws, bypass panzoom
-                if (e.pointerType === 'touch') return false; // Finger touch pans/zooms
-                if (activeTool === 'pan') return false;
-                return true; // Prevent panzoom on stylus/mouse draw
+                // Return true to CANCEL panzoom (allowing drawing/interaction)
+                // Return false to ALLOW panzoom (allowing panning/zooming)
+                const isPen = isStylusOrPen(e);
+                if (isPen) return true; // Pen bypasses panzoom to draw ink
+                if (activeTool === 'pan') return false; // Pan tool allows panzoom
+                if (e.pointerType === 'touch') return false; // Finger touch allows panzoom
+                return true; // Prevent panzoom for mouse drawing
             }
         });
     }
@@ -215,8 +222,9 @@
     }
 
     function svgDown(e) {
-        const isPen = e.pointerType === 'pen' || e.touchType === 'stylus' || (e.touches && e.touches[0] && e.touches[0].touchType === 'stylus');
-        // Finger touch always pans/zooms unless activeTool is explicitly drawing/erasing with stylus/mouse
+        const isPen = isStylusOrPen(e);
+        if (activeTool === 'pan') return;
+        // Finger touch always pans/zooms unless drawing with stylus/pen
         if (e.pointerType === 'touch' && !isPen) return;
 
         if (e.preventDefault) e.preventDefault();
@@ -237,7 +245,7 @@
     }
 
     function svgMove(e) {
-        const isPen = e.pointerType === 'pen' || e.touchType === 'stylus' || (e.touches && e.touches[0] && e.touches[0].touchType === 'stylus');
+        const isPen = isStylusOrPen(e);
         if (e.pointerType === 'touch' && !isPen && currentPoints.length === 0) return;
 
         if (activeTool === 'eraser') {
@@ -305,7 +313,7 @@
 
         let paths = targetStrokes.map(stroke => {
             let offsetPoints = stroke.points.map(pt => [pt[0] - minX, pt[1] - minY, pt[2]]);
-            let d = getSvgPathFromStroke(window.perfectFreehand.getStroke(offsetPoints, { size: stroke.size || 5, thinning: 0.5, smoothing: 0.5 }));
+            let d = getSvgPathFromStroke(getStroke(offsetPoints, { size: stroke.size || 5, thinning: 0.5, smoothing: 0.5 }));
             const opacity = stroke.isHighlighter ? 0.4 : 1.0;
             return `<path d="${d}" fill="${stroke.color || '#3b82f6'}" opacity="${opacity}" />`;
         }).join("");
@@ -622,7 +630,7 @@
                         </div>
 
                         <!-- Stylus & Drawing Controls Toolbar -->
-                        <div class="hw-tools" style="display:flex; gap:12px; align-items:center; border-top: 1px solid var(--border-color); padding-top: 8px;">
+                        <div class="hw-tools" style="display:flex; gap:12px; align-items:center; border-top: 1px solid var(--border-color); padding-top: 8px; touch-action: manipulation; z-index: 20; position: relative;">
                             <div style="display:flex; gap:4px;">
                                 <button class="tool-btn {activeTool === 'pen' ? 'active' : ''}" on:click={() => activeTool = 'pen'} title="Pen (Apple Pencil)">🖊️ Pen</button>
                                 <button class="tool-btn {activeTool === 'highlighter' ? 'active' : ''}" on:click={() => activeTool = 'highlighter'} title="Highlighter">🖍️ Highlight</button>
@@ -635,7 +643,7 @@
                                     <span style="font-size:0.75rem;">Color:</span>
                                     {#each ['#3b82f6', '#ef4444', '#10b981', '#eab308', '#ffffff', '#000000'] as color}
                                         <button
-                                            style="width:18px; height:18px; border-radius:50%; background:{color}; border: {strokeColor === color ? '2px solid white' : '1px solid #64748b'}; cursor:pointer; padding:0;"
+                                            style="width:20px; height:20px; border-radius:50%; background:{color}; border: {strokeColor === color ? '2px solid white' : '1px solid #64748b'}; cursor:pointer; padding:0; touch-action: manipulation;"
                                             aria-label={`Set ink color ${color}`}
                                             on:click={() => strokeColor = color}
                                         ></button>
@@ -669,7 +677,7 @@
                             >
                                 {#each pageStrokes as stroke}
                                     <path
-                                        d={getSvgPathFromStroke(window.perfectFreehand.getStroke(stroke.points, { size: stroke.size || 5, thinning: 0.5, smoothing: 0.5 }))}
+                                        d={getSvgPathFromStroke(getStroke(stroke.points, { size: stroke.size || 5, thinning: 0.5, smoothing: 0.5 }))}
                                         fill={stroke.color || '#3b82f6'}
                                         opacity={stroke.isHighlighter ? 0.4 : 1.0}
                                     />
@@ -677,7 +685,7 @@
 
                                 {#if currentPoints.length > 0}
                                     <path
-                                        d={getSvgPathFromStroke(window.perfectFreehand.getStroke(currentPoints, { size: activeTool === 'highlighter' ? strokeSize * 3 : strokeSize, thinning: 0.5, smoothing: 0.5 }))}
+                                        d={getSvgPathFromStroke(getStroke(currentPoints, { size: activeTool === 'highlighter' ? strokeSize * 3 : strokeSize, thinning: 0.5, smoothing: 0.5 }))}
                                         fill={strokeColor}
                                         opacity={activeTool === 'highlighter' ? 0.4 : 1.0}
                                     />
@@ -740,7 +748,7 @@
     .pdf-nav { display: flex; align-items: center; gap: 15px; }
     .pdf-nav button { background: var(--input-bg); color: var(--text-color); border: 1px solid var(--border-color); padding: 4px 12px; border-radius: 4px; font-weight: bold; cursor: pointer; font-size:0.8rem; }
 
-    .tool-btn { background: var(--input-bg); color: var(--text-color); border: 1px solid var(--border-color); padding: 4px 10px; border-radius: 4px; font-size: 0.8rem; cursor: pointer; transition: 0.15s; }
+    .tool-btn { background: var(--input-bg); color: var(--text-color); border: 1px solid var(--border-color); padding: 6px 12px; border-radius: 4px; font-size: 0.85rem; cursor: pointer; transition: 0.15s; touch-action: manipulation; }
     .tool-btn.active { background: var(--btn-primary-bg); font-weight: bold; border-color: var(--btn-primary-bg); }
 
     .canvas-container { flex: 1; overflow: hidden; display: flex; justify-content: center; align-items: center; padding: 15px; background: var(--input-bg); cursor: grab;}
