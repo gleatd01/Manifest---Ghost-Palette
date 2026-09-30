@@ -1,6 +1,7 @@
 <script>
     import { onMount, tick } from 'svelte';
     import { editingTask, isStudyMode, isHeaderCollapsed, loadTasks } from '../stores/appStore.js';
+    import { getStroke } from 'perfect-freehand';
     import * as pdfjsLib from 'pdfjs-dist';
 
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -312,7 +313,7 @@
 
         let paths = targetStrokes.map(stroke => {
             let offsetPoints = stroke.points.map(pt => [pt[0] - minX, pt[1] - minY, pt[2]]);
-            let d = getSvgPathFromStroke(window.perfectFreehand ? window.perfectFreehand.getStroke(offsetPoints, { size: stroke.size || 5, thinning: 0.5, smoothing: 0.5 }) : offsetPoints);
+            let d = getSvgPathFromStroke(getStroke(offsetPoints, { size: stroke.size || 5, thinning: 0.5, smoothing: 0.5 }));
             const opacity = stroke.isHighlighter ? 0.4 : 1.0;
             return `<path d="${d}" fill="${stroke.color || '#3b82f6'}" opacity="${opacity}" />`;
         }).join("");
@@ -676,7 +677,7 @@
                             >
                                 {#each pageStrokes as stroke}
                                     <path
-                                        d={getSvgPathFromStroke(window.perfectFreehand ? window.perfectFreehand.getStroke(stroke.points, { size: stroke.size || 5, thinning: 0.5, smoothing: 0.5 }) : stroke.points)}
+                                        d={getSvgPathFromStroke(getStroke(stroke.points, { size: stroke.size || 5, thinning: 0.5, smoothing: 0.5 }))}
                                         fill={stroke.color || '#3b82f6'}
                                         opacity={stroke.isHighlighter ? 0.4 : 1.0}
                                     />
@@ -684,7 +685,7 @@
 
                                 {#if currentPoints.length > 0}
                                     <path
-                                        d={getSvgPathFromStroke(window.perfectFreehand ? window.perfectFreehand.getStroke(currentPoints, { size: activeTool === 'highlighter' ? strokeSize * 3 : strokeSize, thinning: 0.5, smoothing: 0.5 }) : currentPoints)}
+                                        d={getSvgPathFromStroke(getStroke(currentPoints, { size: activeTool === 'highlighter' ? strokeSize * 3 : strokeSize, thinning: 0.5, smoothing: 0.5 }))}
                                         fill={strokeColor}
                                         opacity={activeTool === 'highlighter' ? 0.4 : 1.0}
                                     />

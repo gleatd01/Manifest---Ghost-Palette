@@ -1,5 +1,6 @@
 <script>
     import { onMount } from 'svelte';
+    import { getStroke } from 'perfect-freehand';
 
     let activeTool = 'pen'; // 'pen', 'highlighter', 'eraser', 'pan'
     let strokeColor = '#3b82f6';
@@ -203,7 +204,7 @@
             >
                 {#each allStrokes as stroke}
                     <path
-                        d={getSvgPathFromStroke(window.perfectFreehand ? window.perfectFreehand.getStroke(stroke.points, { size: stroke.size || 5, thinning: 0.5, smoothing: 0.5 }) : stroke.points)}
+                        d={getSvgPathFromStroke(getStroke(stroke.points, { size: stroke.size || 5, thinning: 0.5, smoothing: 0.5 }))}
                         fill={stroke.color || '#3b82f6'}
                         opacity={stroke.isHighlighter ? 0.4 : 1.0}
                     />
@@ -211,7 +212,7 @@
 
                 {#if currentPoints.length > 0}
                     <path
-                        d={getSvgPathFromStroke(window.perfectFreehand ? window.perfectFreehand.getStroke(currentPoints, { size: activeTool === 'highlighter' ? strokeSize * 3 : strokeSize, thinning: 0.5, smoothing: 0.5 }) : currentPoints)}
+                        d={getSvgPathFromStroke(getStroke(currentPoints, { size: activeTool === 'highlighter' ? strokeSize * 3 : strokeSize, thinning: 0.5, smoothing: 0.5 }))}
                         fill={strokeColor}
                         opacity={activeTool === 'highlighter' ? 0.4 : 1.0}
                     />
