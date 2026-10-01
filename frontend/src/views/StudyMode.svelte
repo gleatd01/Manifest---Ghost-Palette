@@ -9,6 +9,7 @@
     // --- Study Mode Local State ---
     let activeTab = 'handwriting'; // 'handwriting' or 'markdown'
     let activeTool = 'pen'; // 'pen', 'highlighter', 'eraser', 'pan'
+    let smartPan = false; // Toggle between Smart Touch Pan and Manual Strict Pan Mode
     let strokeColor = '#3b82f6';
     let strokeSize = 5;
     let extraPageHeight = 0; // Extra blank space added below slide/canvas
@@ -131,6 +132,19 @@
         return pType === 'pen' || tType === 'stylus' || (e.pressure !== undefined && e.pressure > 0 && e.pointerType !== 'mouse');
     }
 
+    function updatePanzoomState() {
+        if (!pzInstance) return;
+        if (smartPan) {
+            pzInstance.resume();
+        } else {
+            if (activeTool === 'pan') {
+                pzInstance.resume();
+            } else {
+                pzInstance.pause();
+            }
+        }
+    }
+
     function initPanzoom() {
         if (pzInstance) return;
         const wrapper = document.getElementById('zoom-wrapper');
@@ -144,6 +158,12 @@
             beforeMouseDown: function(e) {
                 // Return true to CANCEL panzoom (allowing drawing/interaction)
                 // Return false to ALLOW panzoom (allowing panning/zooming)
+
+                if (!smartPan) {
+                    if (activeTool === 'pan') return false;
+                    return true;
+                }
+
                 const isPen = isStylusOrPen(e);
                 if (isPen) return true; // Pen bypasses panzoom to draw ink
                 if (activeTool === 'pan') return false; // Pan tool allows panzoom
@@ -151,6 +171,7 @@
                 return true; // Prevent panzoom for mouse drawing
             }
         });
+        updatePanzoomState();
     }
 
     function addBlankSpace() {
@@ -223,9 +244,9 @@
 
     function svgDown(e) {
         const isPen = isStylusOrPen(e);
-        if (activeTool === 'pan') return;
+        if (activeTool === 'pan' && !smartPan) return;
         // Finger touch always pans/zooms unless drawing with stylus/pen
-        if (e.pointerType === 'touch' && !isPen) return;
+        if (smartPan && e.pointerType === 'touch' && !isPen) return;
 
         if (e.preventDefault) e.preventDefault();
         try {
@@ -246,7 +267,7 @@
 
     function svgMove(e) {
         const isPen = isStylusOrPen(e);
-        if (e.pointerType === 'touch' && !isPen && currentPoints.length === 0) return;
+        if (smartPan && e.pointerType === 'touch' && !isPen && currentPoints.length === 0) return;
 
         if (activeTool === 'eraser') {
             if (e.buttons === 1 || isPen) {
@@ -632,10 +653,17 @@
                         <!-- Stylus & Drawing Controls Toolbar -->
                         <div class="hw-tools" style="display:flex; gap:12px; align-items:center; border-top: 1px solid var(--border-color); padding-top: 8px; touch-action: manipulation; z-index: 20; position: relative;">
                             <div style="display:flex; gap:4px;">
-                                <button class="tool-btn {activeTool === 'pen' ? 'active' : ''}" on:click={() => activeTool = 'pen'} title="Pen (Apple Pencil)">🖊️ Pen</button>
-                                <button class="tool-btn {activeTool === 'highlighter' ? 'active' : ''}" on:click={() => activeTool = 'highlighter'} title="Highlighter">🖍️ Highlight</button>
-                                <button class="tool-btn {activeTool === 'eraser' ? 'active' : ''}" on:click={() => activeTool = 'eraser'} title="Eraser">🧹 Eraser</button>
-                                <button class="tool-btn {activeTool === 'pan' ? 'active' : ''}" on:click={() => activeTool = 'pan'} title="Pan / Zoom Workspace">🖐 Pan/Zoom</button>
+                                <button class="tool-btn {activeTool === 'pen' ? 'active' : ''}" on:click={() => { activeTool = 'pen'; updatePanzoomState(); }} title="Pen (Apple Pencil)">🖊️ Pen</button>
+                                <button class="tool-btn {activeTool === 'highlighter' ? 'active' : ''}" on:click={() => { activeTool = 'highlighter'; updatePanzoomState(); }} title="Highlighter">🖍️ Highlight</button>
+                                <button class="tool-btn {activeTool === 'eraser' ? 'active' : ''}" on:click={() => { activeTool = 'eraser'; updatePanzoomState(); }} title="Eraser">🧹 Eraser</button>
+                                <button class="tool-btn {activeTool === 'pan' ? 'active' : ''}" on:click={() => { activeTool = 'pan'; updatePanzoomState(); }} title="Pan / Zoom Workspace">🖐 Pan/Zoom</button>
+                            </div>
+
+                            <div class="smart-toggle">
+                                <label style="display:flex; align-items:center; gap:5px; font-size:0.8rem; cursor:pointer;" title="If ON: Touch automatically pans while Pen draws. If OFF: Strict mode (use Pan tool to move, Pen tool to draw)">
+                                    <input type="checkbox" bind:checked={smartPan} on:change={updatePanzoomState} />
+                                    <span>🧠 Smart Touch Pan</span>
+                                </label>
                             </div>
 
                             {#if activeTool !== 'eraser' && activeTool !== 'pan'}
@@ -668,7 +696,7 @@
                             <!-- Vector Handwriting Layer -->
                             <svg
                                 class="drawing-layer svg-layer"
-                                style="width: {pdfWidth}px; height: {pdfHeight + extraPageHeight}px; pointer-events: {activeTool === 'pan' ? 'none' : 'auto'}; cursor: {activeTool === 'eraser' ? 'cell' : 'crosshair'}; touch-action: {activeTool === 'pan' ? 'auto' : 'none'};"
+                                style="width: {pdfWidth}px; height: {pdfHeight + extraPageHeight}px; pointer-events: {(!smartPan && activeTool === 'pan') ? 'none' : 'auto'}; cursor: {activeTool === 'eraser' ? 'cell' : 'crosshair'}; touch-action: {activeTool === 'pan' ? 'auto' : 'none'};"
                                 on:pointerdown={svgDown}
                                 on:pointermove={svgMove}
                                 on:pointerup={svgUp}
@@ -716,7 +744,7 @@
 
 <style>
     .study-workspace { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-    .study-layout-container { display: flex; gap: 20px; width: 100%; flex: 1; transition: flex 0.3s ease; min-height: 0; }
+    .study-layout-container { display: flex; -webkit-user-select: none; user-select: none; gap: 20px; width: 100%; flex: 1; transition: flex 0.3s ease; min-height: 0; }
 
     .study-sidebar { width: 300px; flex-shrink: 0; display: flex; flex-direction: column; background: var(--sidebar-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 15px; box-sizing: border-box; overflow: hidden; }
     .pane-header { font-size: 0.8rem; font-weight: bold; color: #666; text-transform: uppercase; letter-spacing: 1px; padding-bottom: 6px; border-bottom: 1px solid var(--border-color); margin-bottom: 12px; }
@@ -751,7 +779,7 @@
     .tool-btn { background: var(--input-bg); color: var(--text-color); border: 1px solid var(--border-color); padding: 6px 12px; border-radius: 4px; font-size: 0.85rem; cursor: pointer; transition: 0.15s; touch-action: manipulation; }
     .tool-btn.active { background: var(--btn-primary-bg); font-weight: bold; border-color: var(--btn-primary-bg); }
 
-    .canvas-container { flex: 1; overflow: hidden; display: flex; justify-content: center; align-items: center; padding: 15px; background: var(--input-bg); cursor: grab;}
+    .canvas-container { flex: 1; -webkit-user-select: none; user-select: none; overflow: hidden; display: flex; justify-content: center; align-items: center; padding: 15px; background: var(--input-bg); cursor: grab;}
     .canvas-container:active { cursor: grabbing; }
     .pdf-base-layer { display: block; background: #ffffff; box-shadow: 0 4px 20px rgba(0,0,0,0.5); border-radius: 4px; max-width: 100%; object-fit: contain; }
 

@@ -233,7 +233,7 @@
 </div>
 
 <style>
-    .test-container { display: flex; flex-direction: column; gap: 15px; width: 100%; color: var(--text-color); box-sizing: border-box; }
+    .test-container { display: flex; -webkit-user-select: none; user-select: none; flex-direction: column; gap: 15px; width: 100%; color: var(--text-color); box-sizing: border-box; }
     .test-toolbar { display: flex; flex-wrap: wrap; gap: 15px; align-items: center; background: var(--sidebar-bg); padding: 12px; border-radius: 8px; border: 1px solid var(--border-color); touch-action: manipulation; }
     .tools-group, .color-group, .size-group { display: flex; gap: 8px; align-items: center; }
     .tool-btn { background: var(--input-bg); color: var(--text-color); border: 1px solid var(--border-color); padding: 8px 14px; border-radius: 6px; font-size: 0.9rem; cursor: pointer; transition: 0.15s; touch-action: manipulation; }
