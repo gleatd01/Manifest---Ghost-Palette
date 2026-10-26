@@ -332,12 +332,17 @@
         let width = Math.max(100, maxX - minX);
         let height = Math.max(100, maxY - minY);
 
-        let paths = targetStrokes.map(stroke => {
-            let offsetPoints = stroke.points.map(pt => [pt[0] - minX, pt[1] - minY, pt[2]]);
+        let paths = targetStrokes.reduce((acc, stroke) => {
+            const pts = stroke.points;
+            const len = pts.length;
+            const offsetPoints = new Array(len);
+            for (let i = 0; i < len; i++) {
+                offsetPoints[i] = [pts[i][0] - minX, pts[i][1] - minY, pts[i][2]];
+            }
             let d = getSvgPathFromStroke(getStroke(offsetPoints, { size: stroke.size || 5, thinning: 0.5, smoothing: 0.5 }));
             const opacity = stroke.isHighlighter ? 0.4 : 1.0;
-            return `<path d="${d}" fill="${stroke.color || '#3b82f6'}" opacity="${opacity}" />`;
-        }).join("");
+            return acc + `<path d="${d}" fill="${stroke.color || '#3b82f6'}" opacity="${opacity}" />`;
+        }, "");
 
         return `<svg viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">\n${paths}\n</svg>`;
     }
