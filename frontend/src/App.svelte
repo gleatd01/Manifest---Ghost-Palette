@@ -17,6 +17,8 @@
         settings: () => import('./views/SettingsView.svelte'),
         admin: () => import('./views/AdminView.svelte'),
         inktest: () => import('./views/InkTestView.svelte'),
+        videotest: () => import('./views/VideoTestView.svelte'),
+        bartest: () => import('./views/BarTestView.svelte'),
     };
 
     let activeComponent = null;

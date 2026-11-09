@@ -44,6 +44,8 @@
         <button class:active={$currentView === 'gantt'} on:click={() => $currentView = 'gantt'}>Gantt</button>
         <button class:active={$currentView === 'settings'} on:click={() => $currentView = 'settings'}>Settings</button>
         <button class:active={$currentView === 'inktest'} on:click={() => $currentView = 'inktest'} style="color: #60a5fa;">✍️ Ink Test</button>
+        <button class:active={$currentView === 'videotest'} on:click={() => $currentView = 'videotest'} style="color: #10b981;">📹 Video Test</button>
+        <button class:active={$currentView === 'bartest'} on:click={() => $currentView = 'bartest'} style="color: #eab308;">🧪 Bar Test</button>
         {#if isAdmin}
             <button class:active={$currentView === 'admin'} on:click={() => $currentView = 'admin'} style="color: #f59e0b;">Admin ⚡</button>
         {/if}
