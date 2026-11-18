@@ -8,8 +8,13 @@
     let successMsg = '';
 
     const ADMIN_EMAIL = 'taylor.d.gleason@gmail.com';
+    const isDevEnv = typeof window !== 'undefined' && window.location.pathname.startsWith('/dev');
 
     $: isAdmin = $user?.email && $user.email.toLowerCase() === ADMIN_EMAIL;
+
+    function switchEnvironment(targetPath) {
+        window.location.href = targetPath;
+    }
 
     onMount(() => {
         if (isAdmin) {
@@ -69,6 +74,26 @@
             Access Denied: You must be logged in as <strong>{ADMIN_EMAIL}</strong> to view this page.
         </div>
     {:else}
+        <div class="env-switch-card">
+            <div>
+                <h3 style="margin: 0 0 4px 0; font-size: 1rem;">Environment Switcher (iPad / Web App)</h3>
+                <p style="margin: 0; font-size: 0.85rem; color: #888;">
+                    Currently running: <span class="badge {isDevEnv ? 'warning' : 'success'}">{isDevEnv ? 'DEV (/dev/)' : 'PRODUCTION (/)'}</span>
+                </p>
+            </div>
+            <div style="display: flex; gap: 10px;">
+                {#if isDevEnv}
+                    <button class="btn pro-btn" on:click={() => switchEnvironment('/')}>
+                        🏠 Switch to Production (/)
+                    </button>
+                {:else}
+                    <button class="btn env-dev-btn" on:click={() => switchEnvironment('/dev/')}>
+                        🧪 Switch to Dev Environment (/dev/)
+                    </button>
+                {/if}
+            </div>
+        </div>
+
         {#if errorMsg}
             <div class="alert danger">{errorMsg}</div>
         {/if}
@@ -206,5 +231,18 @@
     }
     .btn:hover { opacity: 0.85; }
     .pro-btn { background: #4f46e5; color: white; }
+    .env-dev-btn { background: #f59e0b; color: #000; font-weight: bold; }
     .danger-btn { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid #991b1b; }
+    .env-switch-card {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 12px;
+        background: var(--input-bg);
+        border: 1px solid var(--border-color);
+        padding: 15px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+    }
 </style>
