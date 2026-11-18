@@ -18,7 +18,6 @@
         gantt: () => import('./views/GanttView.svelte'),
         settings: () => import('./views/SettingsView.svelte'),
         admin: () => import('./views/AdminView.svelte'),
-        audiotest: () => import('./views/AudioTestView.svelte'),
     };
 
     let activeComponent = ListView;

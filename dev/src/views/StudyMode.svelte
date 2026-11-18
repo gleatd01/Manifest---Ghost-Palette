@@ -39,20 +39,54 @@
     let pdfWidth = 800;
     let pdfHeight = 1000;
 
-    // Media variables
+    // Media & Audio Settings / Diagnostics variables
+    let isAudioSidebarCollapsed = false;
+    let showAudioSettings = false;
+    let audioRecordMode = 'combined'; // 'combined', 'speech-only', 'recorder-only'
     let mediaRecorder = null;
     let mediaStream = null;
     let audioChunks = [];
     let isRecording = false;
+    let isSpeechRunning = false;
     let recognition = null;
     let interimTranscript = '';
     let speechStatusMsg = '';
+    let recordedMime = '';
+    let recordedSize = 0;
+    let chunkCount = 0;
+    let audioDiagLogs = [];
+    let audioCapabilities = {
+        speech: false,
+        mediaRecorder: false,
+        supportedMimes: []
+    };
     let recordingStartTime = 0;
     let slideTimeline = [];
     let activePlaybackPage = 1;
     let currentAudioTime = 0;
     let activeStrokeId = null;
     let saveQueue = Promise.resolve();
+
+    function addAudioLog(type, msg) {
+        const ts = new Date().toLocaleTimeString();
+        audioDiagLogs = [{ ts, type, msg }, ...audioDiagLogs.slice(0, 39)];
+    }
+
+    function detectAudioCapabilities() {
+        audioCapabilities.speech = ('SpeechRecognition' in window) || ('webkitSpeechRecognition' in window);
+        audioCapabilities.mediaRecorder = 'MediaRecorder' in window;
+        const mimeCandidates = [
+            'audio/mp4',
+            'audio/mp4;codecs=mp4a.40.2',
+            'audio/webm;codecs=opus',
+            'audio/webm',
+            'audio/ogg;codecs=opus'
+        ];
+        if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported) {
+            audioCapabilities.supportedMimes = mimeCandidates.filter(m => MediaRecorder.isTypeSupported(m));
+        }
+        addAudioLog('INFO', `Capabilities: Speech=${audioCapabilities.speech}, Recorder=${audioCapabilities.mediaRecorder}, Mimes=[${audioCapabilities.supportedMimes.join(', ')}]`);
+    }
 
     $: pageStrokes = allStrokes.filter(s => (s.page || 1) === pageNum);
 
@@ -135,6 +169,7 @@
             svgRef.addEventListener('touchmove', preventNativeTouchCancel, { passive: false });
         }
 
+        detectAudioCapabilities();
         initSpeechRecognition();
         renderPreview();
     });
@@ -158,6 +193,7 @@
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!SpeechRecognition) {
             speechStatusMsg = 'Browser speech recognition unavailable';
+            addAudioLog('ERROR', 'SpeechRecognition API unavailable in this browser');
             return;
         }
         recognition = new SpeechRecognition();
@@ -165,14 +201,23 @@
         recognition.continuous = true;
         recognition.interimResults = true;
 
+        recognition.onstart = () => {
+            isSpeechRunning = true;
+            addAudioLog('SPEECH', 'SpeechRecognition started (onstart)');
+        };
+        recognition.onaudiostart = () => addAudioLog('SPEECH', 'Microphone capture active (onaudiostart)');
+        recognition.onspeechstart = () => addAudioLog('SPEECH', 'Speech detected (onspeechstart)');
+
         recognition.onresult = (event) => {
             let interim = '';
             let addedFinal = false;
             for (let i = event.resultIndex; i < event.results.length; ++i) {
                 const transcriptPiece = event.results[i][0].transcript;
+                const conf = (event.results[i][0].confidence * 100).toFixed(0);
                 if (event.results[i].isFinal) {
                     $editingTask.transcription = ($editingTask.transcription || '') + transcriptPiece.trim() + ' ';
                     addedFinal = true;
+                    addAudioLog('RESULT', `Final [${conf}%]: "${transcriptPiece.trim()}"`);
                 } else {
                     interim += transcriptPiece;
                 }
@@ -183,20 +228,28 @@
 
         recognition.onerror = (event) => {
             console.warn("SpeechRecognition warning/error:", event.error);
+            addAudioLog('ERROR', `Speech error: ${event.error}`);
             if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-                speechStatusMsg = 'Speech recognition blocked (enable Siri/Dictation or permissions)';
+                speechStatusMsg = 'Speech blocked (check Siri/Dictation or try Speech-Only mode)';
             } else if (event.error !== 'no-speech' && event.error !== 'aborted') {
                 speechStatusMsg = `Speech note: ${event.error}`;
             }
         };
 
         recognition.onend = () => {
+            isSpeechRunning = false;
             interimTranscript = '';
+            addAudioLog('SPEECH', 'SpeechRecognition ended (onend)');
             // Auto-restart on iPadOS/Safari where continuous recognition stops after each pause
-            if (isRecording) {
+            if (isRecording && (audioRecordMode === 'combined' || audioRecordMode === 'speech-only')) {
                 setTimeout(() => {
                     if (isRecording && recognition) {
-                        try { recognition.start(); } catch (e) {}
+                        try {
+                            recognition.start();
+                            addAudioLog('INFO', 'Auto-restarted SpeechRecognition');
+                        } catch (e) {
+                            addAudioLog('ERROR', `Auto-restart failed: ${e.message}`);
+                        }
                     }
                 }, 250);
             }
@@ -711,52 +764,77 @@
     async function startRecording() {
         speechStatusMsg = '';
         interimTranscript = '';
+        isRecording = true;
+        recordingStartTime = Date.now();
+        slideTimeline = [{ time: 0, page: pageNum }];
+        addAudioLog('INFO', `Starting recording (mode: ${audioRecordMode})`);
 
         // 1. Start SpeechRecognition FIRST directly inside the user click gesture (required by iPadOS WebKit)
-        if (recognition) {
-            try {
-                if (!$editingTask.transcription) $editingTask.transcription = '';
-                $editingTask.transcription += '\n--- Recording Started ---\n';
-                recognition.start();
-                speechStatusMsg = 'Listening for speech...';
-            } catch (recErr) {
-                console.warn("SpeechRecognition start warning:", recErr);
+        if (audioRecordMode === 'combined' || audioRecordMode === 'speech-only') {
+            if (!recognition) initSpeechRecognition();
+            if (recognition) {
+                try {
+                    if (!$editingTask.transcription) $editingTask.transcription = '';
+                    $editingTask.transcription += '\n--- Recording Started ---\n';
+                    recognition.start();
+                    speechStatusMsg = 'Listening for speech...';
+                    addAudioLog('SPEECH', 'Called recognition.start() synchronously in tap handler');
+                } catch (recErr) {
+                    console.warn("SpeechRecognition start warning:", recErr);
+                    addAudioLog('ERROR', `recognition.start() threw: ${recErr.message}`);
+                }
             }
         }
 
         // 2. Request microphone stream and start MediaRecorder with iPadOS-compatible MIME type
-        try {
-            mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            const { mimeType, ext } = getSupportedAudioMime();
-            mediaRecorder = mimeType ? new MediaRecorder(mediaStream, { mimeType }) : new MediaRecorder(mediaStream);
-            audioChunks = [];
+        if (audioRecordMode === 'combined' || audioRecordMode === 'recorder-only') {
+            try {
+                addAudioLog('RECORDER', 'Requesting getUserMedia({ audio: true })...');
+                mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                const { mimeType, ext } = getSupportedAudioMime();
+                mediaRecorder = mimeType ? new MediaRecorder(mediaStream, { mimeType }) : new MediaRecorder(mediaStream);
+                recordedMime = mediaRecorder.mimeType || mimeType || 'default';
+                audioChunks = [];
+                chunkCount = 0;
+                recordedSize = 0;
 
-            mediaRecorder.ondataavailable = e => { if (e.data && e.data.size > 0) audioChunks.push(e.data); };
-            mediaRecorder.onstop = async () => {
-                const actualType = (mediaRecorder && mediaRecorder.mimeType) || mimeType || 'audio/mp4';
-                const audioBlob = new Blob(audioChunks, { type: actualType });
-                uploadFileToDrive(audioBlob, 'audio', ext);
-                if (mediaStream) {
-                    mediaStream.getTracks().forEach(t => t.stop());
-                    mediaStream = null;
+                mediaRecorder.ondataavailable = e => {
+                    if (e.data && e.data.size > 0) {
+                        audioChunks.push(e.data);
+                        chunkCount = audioChunks.length;
+                        recordedSize += e.data.size;
+                    }
+                };
+                mediaRecorder.onerror = e => {
+                    addAudioLog('ERROR', `MediaRecorder error: ${e.error?.message || e.type}`);
+                };
+                mediaRecorder.onstop = async () => {
+                    const actualType = (mediaRecorder && mediaRecorder.mimeType) || mimeType || 'audio/mp4';
+                    const audioBlob = new Blob(audioChunks, { type: actualType });
+                    addAudioLog('RECORDER', `Stopped. Saving Blob (${audioBlob.size} bytes, ${actualType})`);
+                    uploadFileToDrive(audioBlob, 'audio', ext);
+                    if (mediaStream) {
+                        mediaStream.getTracks().forEach(t => t.stop());
+                        mediaStream = null;
+                    }
+                };
+
+                mediaRecorder.start(1000);
+                addAudioLog('RECORDER', `MediaRecorder started (MIME: ${recordedMime})`);
+            } catch (err) {
+                console.error("Microphone access denied or failed", err);
+                speechStatusMsg = `Mic error: ${err.message || err.name}`;
+                addAudioLog('ERROR', `getUserMedia failed: ${err.name} - ${err.message}`);
+                if (audioRecordMode === 'recorder-only') {
+                    isRecording = false;
                 }
-            };
-
-            recordingStartTime = Date.now();
-            slideTimeline = [{ time: 0, page: pageNum }];
-            mediaRecorder.start(1000);
-            isRecording = true;
-        } catch (err) {
-            console.error("Microphone access denied or failed", err);
-            speechStatusMsg = `Mic error: ${err.message || err.name}`;
-            if (recognition) {
-                try { recognition.stop(); } catch (e) {}
+                alert("Could not start audio recorder. Please check microphone permissions.");
             }
-            alert("Could not start recording. Please check microphone permissions.");
         }
     }
 
     function stopRecording() {
+        addAudioLog('INFO', 'Stopping recording...');
         isRecording = false;
         interimTranscript = '';
         speechStatusMsg = '';
@@ -765,6 +843,9 @@
         }
         if (mediaRecorder && mediaRecorder.state !== 'inactive') {
             try { mediaRecorder.stop(); } catch (e) {}
+        } else if (mediaStream) {
+            mediaStream.getTracks().forEach(t => t.stop());
+            mediaStream = null;
         }
         $editingTask.slide_tracking = JSON.stringify(slideTimeline);
         saveEdit(true);
@@ -826,30 +907,116 @@
 
 {#if $editingTask}
 <div class="study-workspace">
-    <div class="study-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
-        <input class="ws-title-input" type="text" bind:value={$editingTask.title} placeholder="Document Title" style="background:transparent; border:none; border-bottom:1px solid var(--border-color); color: var(--text-color); font-size:1.4rem; font-weight:bold; width:60%; padding:8px 0;" on:input={() => saveEdit()} />
+    <div class="study-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; gap:10px;">
+        <div style="display:flex; align-items:center; gap:10px; flex:1;">
+            <button
+                class="btn secondary small-btn"
+                style="padding: 6px 10px; font-size: 0.8rem; white-space: nowrap;"
+                on:click={() => isAudioSidebarCollapsed = !isAudioSidebarCollapsed}
+                title={isAudioSidebarCollapsed ? 'Show Audio & Transcript Panel' : 'Hide Audio Panel to maximize Notes'}
+            >
+                {isAudioSidebarCollapsed ? '▶ 🎙️ Show Audio' : '◀ Hide Audio'}
+            </button>
+            {#if isAudioSidebarCollapsed}
+                {#if !isRecording}
+                    <button class="btn action-btn record-btn" style="padding: 6px 12px; font-size: 0.8rem;" on:click={startRecording}>🔴 Record</button>
+                {:else}
+                    <button class="btn action-btn stop-btn" style="padding: 6px 12px; font-size: 0.8rem;" on:click={stopRecording}>⏹ Stop</button>
+                {/if}
+                {#if interimTranscript}
+                    <span style="font-size:0.78rem; color:#60a5fa; font-style:italic; max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">🎤 {interimTranscript}</span>
+                {/if}
+            {/if}
+            <input class="ws-title-input" type="text" bind:value={$editingTask.title} placeholder="Document Title" style="background:transparent; border:none; border-bottom:1px solid var(--border-color); color: var(--text-color); font-size:1.3rem; font-weight:bold; flex:1; padding:6px 0;" on:input={() => saveEdit()} />
+        </div>
         <button class="btn secondary" on:click={closeEdit}>Exit Study Mode</button>
     </div>
 
     <div class="study-layout-container {$isHeaderCollapsed ? 'maximized' : ''}">
-        <!-- LEFT SIDEBAR: Audio, Transcripts & Handwritten Timeline -->
+        <!-- LEFT SIDEBAR: Collapsible Audio, Settings/Diagnostics, Transcripts & Handwritten Timeline -->
+        {#if !isAudioSidebarCollapsed}
         <div class="study-sidebar">
-            <div class="pane-header">Audio & Transcript</div>
-
-            <div class="audio-controls">
-                {#if !isRecording}
-                    <button class="btn action-btn record-btn" on:click={startRecording}>🔴 Record</button>
-                {:else}
-                    <button class="btn action-btn stop-btn" on:click={stopRecording}>⏹ Stop (Saves)</button>
-                {/if}
+            <div class="pane-header" style="display:flex; justify-content:space-between; align-items:center;">
+                <span>Audio & Transcript</span>
+                <button
+                    class="collapse-icon-btn"
+                    on:click={() => isAudioSidebarCollapsed = true}
+                    title="Collapse Audio Sidebar to maximize Notes"
+                >
+                    ◀ Collapse
+                </button>
             </div>
+
+            <div class="audio-controls" style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+                {#if !isRecording}
+                    <button class="btn action-btn record-btn" style="flex:1;" on:click={startRecording}>🔴 Record</button>
+                {:else}
+                    <button class="btn action-btn stop-btn" style="flex:1;" on:click={stopRecording}>⏹ Stop (Saves)</button>
+                {/if}
+                <button
+                    class="btn secondary small-btn {showAudioSettings ? 'active-settings-btn' : ''}"
+                    style="padding: 6px 10px; font-size: 0.78rem;"
+                    on:click={() => showAudioSettings = !showAudioSettings}
+                    title="Toggle Audio Settings & Diagnostics"
+                >
+                    ⚙️ {showAudioSettings ? 'Hide' : 'Settings'}
+                </button>
+            </div>
+
+            <!-- COLLAPSIBLE AUDIO SETTINGS & DIAGNOSTICS MENU -->
+            {#if showAudioSettings}
+                <div class="audio-settings-menu">
+                    <div class="settings-row">
+                        <label for="audio-mode-select" style="font-size:0.72rem; color:#94a3b8; font-weight:bold;">Recording Mode:</label>
+                        <select id="audio-mode-select" bind:value={audioRecordMode} disabled={isRecording} class="audio-mode-select">
+                            <option value="combined">Combined (Speech + Audio File)</option>
+                            <option value="speech-only">Speech Transcription Only</option>
+                            <option value="recorder-only">Audio File Only (No Speech)</option>
+                        </select>
+                    </div>
+
+                    <div class="diag-mini-grid">
+                        <div class="diag-pill">
+                            <span>Speech API:</span>
+                            <strong class={audioCapabilities.speech ? 'ok' : 'err'}>{audioCapabilities.speech ? (isSpeechRunning ? '🟢 Active' : 'Ready') : 'No'}</strong>
+                        </div>
+                        <div class="diag-pill">
+                            <span>MIME:</span>
+                            <strong class="ok">{recordedMime || audioCapabilities.supportedMimes[0] || 'auto'}</strong>
+                        </div>
+                        <div class="diag-pill">
+                            <span>Audio Chunks:</span>
+                            <strong>{chunkCount} ({(recordedSize / 1024).toFixed(1)} KB)</strong>
+                        </div>
+                    </div>
+
+                    <div class="diag-log-header">
+                        <span>🛠️ Live Audio Event Log</span>
+                        <button class="clear-log-btn" on:click={() => audioDiagLogs = []}>Clear</button>
+                    </div>
+                    <div class="diag-log-list">
+                        {#if audioDiagLogs.length === 0}
+                            <div style="color:#64748b;">Tap Record to see live speech/mic events...</div>
+                        {:else}
+                            {#each audioDiagLogs as item}
+                                <div class="diag-log-row {item.type.toLowerCase()}">
+                                    <span class="diag-ts">[{item.ts}]</span>
+                                    <span class="diag-tag">{item.type}</span>
+                                    <span>{item.msg}</span>
+                                </div>
+                            {/each}
+                        {/if}
+                    </div>
+                </div>
+            {/if}
+
             {#if $editingTask.audio_url}
-                <div style="margin-bottom: 15px;">
+                <div style="margin-bottom: 12px;">
                     <audio bind:this={audioRef} controls class="audio-player" src={$editingTask.audio_url} on:timeupdate={handleAudioTimeUpdate}></audio>
                 </div>
             {/if}
 
-            <div class="transcript-box" id="transcript-scroll-box" style="margin-bottom:15px;">
+            <div class="transcript-box" id="transcript-scroll-box" style="margin-bottom:12px;">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
                     <p class="section-label" style="font-size:0.75rem; margin:0;">Live Transcription</p>
                     {#if speechStatusMsg}
@@ -883,6 +1050,7 @@
                 </div>
             </div>
         </div>
+        {/if}
 
         <!-- MAIN WORKSPACE: PDF & Canvas Handwriting Workspace & Notes Tabs -->
         <div class="study-main-workspace">
@@ -1030,8 +1198,30 @@
     .study-workspace { display: flex; flex-direction: column; flex: 1; min-height: 0; }
     .study-layout-container { display: flex; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; gap: 20px; width: 100%; flex: 1; transition: flex 0.3s ease; min-height: 0; }
 
-    .study-sidebar { width: 300px; flex-shrink: 0; display: flex; flex-direction: column; background: var(--sidebar-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 15px; box-sizing: border-box; overflow: hidden; }
+    .study-sidebar { width: 310px; flex-shrink: 0; display: flex; flex-direction: column; background: var(--sidebar-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 15px; box-sizing: border-box; overflow: hidden; }
     .pane-header { font-size: 0.8rem; font-weight: bold; color: #666; text-transform: uppercase; letter-spacing: 1px; padding-bottom: 6px; border-bottom: 1px solid var(--border-color); margin-bottom: 12px; }
+    .collapse-icon-btn { background: var(--input-bg); color: var(--text-color); border: 1px solid var(--border-color); border-radius: 4px; padding: 2px 8px; font-size: 0.7rem; cursor: pointer; text-transform: none; letter-spacing: 0; }
+    .collapse-icon-btn:hover { background: var(--border-color); }
+    .active-settings-btn { border-color: var(--btn-primary-bg) !important; color: #60a5fa !important; }
+
+    .audio-settings-menu { background: var(--input-bg); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px; margin-bottom: 12px; display: flex; flex-direction: column; gap: 8px; }
+    .settings-row { display: flex; flex-direction: column; gap: 4px; }
+    .audio-mode-select { background: var(--sidebar-bg); color: var(--text-color); border: 1px solid var(--border-color); padding: 6px 8px; border-radius: 4px; font-size: 0.76rem; width: 100%; }
+    .diag-mini-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+    .diag-pill { background: var(--sidebar-bg); border: 1px solid var(--border-color); border-radius: 4px; padding: 3px 6px; font-size: 0.68rem; display: flex; gap: 4px; align-items: center; }
+    .diag-pill .ok { color: #34d399; }
+    .diag-pill .err { color: #f87171; }
+    .diag-log-header { display: flex; justify-content: space-between; align-items: center; font-size: 0.7rem; font-weight: bold; color: #94a3b8; padding-top: 4px; border-top: 1px solid var(--border-color); }
+    .clear-log-btn { background: none; border: none; color: #60a5fa; font-size: 0.68rem; cursor: pointer; padding: 0; }
+    .diag-log-list { max-height: 110px; overflow-y: auto; font-family: monospace; font-size: 0.68rem; display: flex; flex-direction: column; gap: 3px; background: var(--sidebar-bg); padding: 6px; border-radius: 4px; border: 1px solid var(--border-color); }
+    .diag-log-row { display: flex; gap: 5px; line-height: 1.3; word-break: break-word; }
+    .diag-ts { color: #64748b; flex-shrink: 0; }
+    .diag-tag { font-weight: bold; flex-shrink: 0; }
+    .diag-log-row.error { color: #f87171; }
+    .diag-log-row.result { color: #34d399; }
+    .diag-log-row.speech { color: #60a5fa; }
+    .diag-log-row.recorder { color: #fbbf24; }
+
     .audio-controls { display: flex; gap: 10px; margin-bottom: 12px; }
     .record-btn { background: var(--danger-bg); color: var(--text-color); }
     .record-btn:hover { background: #f43f5e; }
