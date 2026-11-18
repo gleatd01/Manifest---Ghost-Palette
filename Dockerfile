@@ -21,6 +21,7 @@ COPY package*.json ./
 RUN npm install --production 
 COPY backend ./backend
 COPY --from=build /app/frontend/dist ./frontend/dist
+COPY --from=build /app/dev/dist ./dev/dist
 
 EXPOSE 3000
 CMD ["node", "backend/server.js"]

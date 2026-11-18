@@ -35,13 +35,35 @@ passport.use(new GoogleStrategy({
   }
 ));
 
-router.get('/google', passport.authenticate('google', {
-    scope: ['profile', 'email', 'https://www.googleapis.com/auth/drive.file', 'https://www.googleapis.com/auth/drive.readonly'],
-    accessType: 'offline',
-    prompt: 'consent'
-}));
+router.get('/google', (req, res, next) => {
+    const referer = req.get('Referer') || '';
+    const returnTo = req.query.returnTo || (referer.includes('/dev') ? '/dev/' : '/');
+    if (req.session) {
+        req.session.returnTo = returnTo;
+    }
+    passport.authenticate('google', {
+        scope: ['profile', 'email', 'https://www.googleapis.com/auth/drive.file', 'https://www.googleapis.com/auth/drive.readonly'],
+        accessType: 'offline',
+        prompt: 'consent',
+        state: returnTo
+    })(req, res, next);
+});
 
-router.get('/google/callback', passport.authenticate('google', { failureRedirect: '/' }), (req, res) => res.redirect('/'));
+router.get('/google/callback', passport.authenticate('google', { failureRedirect: '/' }), (req, res) => {
+    const stateTarget = req.query.state && req.query.state.startsWith('/dev') ? '/dev/' : null;
+    const sessionTarget = req.session && req.session.returnTo && req.session.returnTo.startsWith('/dev') ? '/dev/' : null;
+    if (req.session) delete req.session.returnTo;
+    res.redirect(stateTarget || sessionTarget || '/');
+});
+
+router.get('/logout', (req, res, next) => {
+    const referer = req.get('Referer') || '';
+    const redirectTarget = req.query.returnTo || (referer.includes('/dev') ? '/dev/' : '/');
+    req.logout((err) => {
+        if (err) return next(err);
+        res.redirect(redirectTarget);
+    });
+});
 
 router.post('/logout', (req, res, next) => {
     req.logout((err) => {

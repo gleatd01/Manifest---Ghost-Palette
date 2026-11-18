@@ -46,6 +46,10 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api', integrationsRoutes);
 app.use('/api/admin', adminRoutes);
 
+// Serve development environment build at /dev
+app.use('/dev', express.static(path.join(__dirname, '../dev/dist')));
+app.get(['/dev', '/dev/*'], (req, res) => res.sendFile(path.join(__dirname, '../dev/dist', 'index.html')));
+
 // Update path to serve frontend build output from the correct directory relative to backend
 app.use(express.static(path.join(__dirname, '../frontend/dist')));
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, '../frontend/dist', 'index.html')));
