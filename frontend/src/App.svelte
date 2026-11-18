@@ -2,15 +2,17 @@
     import { onMount } from 'svelte';
     import {
         user, allUsers, currentView, editingTask, isStudyMode,
-        isHeaderCollapsed, loadTasks
+        isHeaderCollapsed, loadTasks, loadTopics
     } from './stores/appStore.js';
 
     import Header from './components/Header.svelte';
     import TaskEditModal from './components/TaskEditModal.svelte';
 
-    // Lazy load views to improve initial render time and segregate features
+    import ListView from './views/ListView.svelte';
+
+    // Lazy load secondary views to improve initial render time and segregate features
     const ViewMap = {
-        list: () => import('./views/ListView.svelte'),
+        list: () => Promise.resolve({ default: ListView }),
         calendar: () => import('./views/CalendarView.svelte'),
         agenda: () => import('./views/AgendaView.svelte'),
         gantt: () => import('./views/GanttView.svelte'),
@@ -18,20 +20,35 @@
         admin: () => import('./views/AdminView.svelte'),
     };
 
-    let activeComponent = null;
+    let activeComponent = ListView;
+    let chunkReloadAttempted = false;
+
+    function loadViewComponent(loader) {
+        if (!loader) return;
+        loader().then(module => {
+            activeComponent = module.default;
+        }).catch(err => {
+            console.error("Failed to load view:", err);
+            // If a new deployment replaced Vite asset hashes, force a clean page reload once
+            if (!chunkReloadAttempted) {
+                chunkReloadAttempted = true;
+                window.location.reload();
+            }
+        });
+    }
 
     // Reactively load the correct component when the currentView changes
     $: if ($currentView && !$isStudyMode) {
-        ViewMap[$currentView]().then(module => {
-            activeComponent = module.default;
-        }).catch(err => console.error("Failed to load view:", err));
+        if (!ViewMap[$currentView]) {
+            $currentView = 'list';
+        } else {
+            loadViewComponent(ViewMap[$currentView]);
+        }
     }
 
     // Reactively load Study Mode if it is activated
     $: if ($isStudyMode) {
-        import('./views/StudyMode.svelte').then(module => {
-            activeComponent = module.default;
-        }).catch(err => console.error("Failed to load Study Mode:", err));
+        loadViewComponent(() => import('./views/StudyMode.svelte'));
     }
 
     onMount(async () => {
@@ -50,9 +67,7 @@
         if ($user) {
             loadTasks();
             loadUsers();
-            import('./stores/appStore.js').then(module => {
-                if (module.loadTopics) module.loadTopics();
-            });
+            loadTopics();
         }
     });
 

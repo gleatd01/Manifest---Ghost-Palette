@@ -47,11 +47,31 @@ app.use('/api', integrationsRoutes);
 app.use('/api/admin', adminRoutes);
 
 // Serve development environment build at /dev
-app.use('/dev', express.static(path.join(__dirname, '../dev/dist')));
-app.get(['/dev', '/dev/*'], (req, res) => res.sendFile(path.join(__dirname, '../dev/dist', 'index.html')));
+app.use('/dev', express.static(path.join(__dirname, '../dev/dist'), {
+    setHeaders: (res, filePath) => {
+        if (filePath.endsWith('index.html')) {
+            res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+        }
+    }
+}));
+app.get('/dev/assets/*', (req, res) => res.status(404).end());
+app.get(['/dev', '/dev/*'], (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.sendFile(path.join(__dirname, '../dev/dist', 'index.html'));
+});
 
 // Update path to serve frontend build output from the correct directory relative to backend
-app.use(express.static(path.join(__dirname, '../frontend/dist')));
-app.get('*', (req, res) => res.sendFile(path.join(__dirname, '../frontend/dist', 'index.html')));
+app.use(express.static(path.join(__dirname, '../frontend/dist'), {
+    setHeaders: (res, filePath) => {
+        if (filePath.endsWith('index.html')) {
+            res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+        }
+    }
+}));
+app.get('/assets/*', (req, res) => res.status(404).end());
+app.get('*', (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.sendFile(path.join(__dirname, '../frontend/dist', 'index.html'));
+});
 
 server.listen(PORT, () => console.log(`[v30.4 Handwriting] Server Running. Port: ${PORT}`));
