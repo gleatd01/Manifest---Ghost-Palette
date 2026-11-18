@@ -1,6 +1,6 @@
 <script>
-    import { onMount, tick } from 'svelte';
-    import { editingTask, isStudyMode, isHeaderCollapsed, loadTasks } from '../stores/appStore.js';
+    import { onMount, onDestroy, tick } from 'svelte';
+    import { editingTask, isStudyMode, isHeaderCollapsed, tasks } from '../stores/appStore.js';
     import { getStroke } from 'perfect-freehand';
     import * as pdfjsLib from 'pdfjs-dist';
 
@@ -9,7 +9,7 @@
     // --- Study Mode Local State ---
     let activeTab = 'handwriting'; // 'handwriting' or 'markdown'
     let activeTool = 'pen'; // 'pen', 'highlighter', 'eraser', 'pan'
-    let smartPan = false; // Toggle between Smart Touch Pan and Manual Strict Pan Mode
+    let smartPan = true; // Default ON for iPad: Finger touch pans, Apple Pencil writes
     let strokeColor = '#3b82f6';
     let strokeSize = 5;
     let extraPageHeight = 0; // Extra blank space added below slide/canvas
@@ -17,6 +17,17 @@
     let pzInstance = null;
     let currentPoints = [];
     let allStrokes = []; // Stored persistently in $editingTask.handwriting_data
+
+    // High-performance active drawing state (bypasses Svelte reactive re-renders at 240Hz)
+    let svgRef;
+    let activePathRef;
+    let activePointerId = null;
+    let cachedRect = null;
+    let cachedScaleX = 1;
+    let cachedScaleY = 1;
+    let rafId = null;
+    let eraserDirty = false;
+    let saveTimeout = null;
 
     // PDF variables
     let pdfContainerRef;
@@ -42,6 +53,53 @@
 
     $: pageStrokes = allStrokes.filter(s => (s.page || 1) === pageNum);
 
+    function computeStrokePath(points, size) {
+        return getSvgPathFromStroke(getStroke(points, {
+            size: size || 5,
+            thinning: 0.5,
+            smoothing: 0.5,
+            streamline: 0.5,
+            simulatePressure: false
+        }));
+    }
+
+    function computeStrokeBBox(points, pad = 18) {
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (let i = 0; i < points.length; i++) {
+            const x = points[i][0];
+            const y = points[i][1];
+            if (x < minX) minX = x;
+            if (y < minY) minY = y;
+            if (x > maxX) maxX = x;
+            if (y > maxY) maxY = y;
+        }
+        return { minX: minX - pad, minY: minY - pad, maxX: maxX + pad, maxY: maxY + pad };
+    }
+
+    function hydrateStrokes(rawStrokes) {
+        return (rawStrokes || []).map(s => {
+            const pts = s.points || [];
+            return {
+                ...s,
+                cachedPath: s.cachedPath || computeStrokePath(pts, s.size || 5),
+                bbox: s.bbox || computeStrokeBBox(pts, (s.size || 5) + 15)
+            };
+        });
+    }
+
+    function preventNativeTouchCancel(e) {
+        // Prevent iPadOS Safari Scribble / system touch gesture takeover when drawing with Apple Pencil
+        const isTouchStylus = e.touches && e.touches[0] && (e.touches[0].touchType === 'stylus' || e.touches[0].force > 0);
+        if (isTouchStylus) {
+            if (e.cancelable) e.preventDefault();
+            e.stopPropagation();
+            return;
+        }
+        if (!smartPan && activeTool !== 'pan') {
+            if (e.cancelable) e.preventDefault();
+        }
+    }
+
     // Initialization logic for Study Mode
     onMount(async () => {
         if ($editingTask.slide_tracking) {
@@ -51,7 +109,9 @@
         }
 
         if ($editingTask.handwriting_data) {
-            try { allStrokes = JSON.parse($editingTask.handwriting_data); } catch(e) { allStrokes = []; }
+            try {
+                allStrokes = hydrateStrokes(JSON.parse($editingTask.handwriting_data));
+            } catch(e) { allStrokes = []; }
         } else {
             allStrokes = [];
         }
@@ -60,7 +120,6 @@
             await tick();
             loadPdf($editingTask.pdf_url);
         } else {
-            // Setup blank paper default dimensions
             pdfWidth = 800;
             pdfHeight = 1000;
             await tick();
@@ -68,13 +127,30 @@
             initPanzoom();
         }
 
+        if (svgRef) {
+            svgRef.addEventListener('touchstart', preventNativeTouchCancel, { passive: false });
+            svgRef.addEventListener('touchmove', preventNativeTouchCancel, { passive: false });
+        }
+
         initSpeechRecognition();
         renderPreview();
     });
 
-    /**
-     * Initializes the SpeechRecognition API to transcribe audio into the markdown editor.
-     */
+    onDestroy(() => {
+        if (rafId) cancelAnimationFrame(rafId);
+        if (saveTimeout) {
+            clearTimeout(saveTimeout);
+            flushSaveEdit();
+        }
+        if (svgRef) {
+            svgRef.removeEventListener('touchstart', preventNativeTouchCancel);
+            svgRef.removeEventListener('touchmove', preventNativeTouchCancel);
+        }
+        if (pzInstance && pzInstance.dispose) {
+            pzInstance.dispose();
+        }
+    });
+
     function initSpeechRecognition() {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (SpeechRecognition) {
@@ -92,35 +168,54 @@
         }
     }
 
-    /**
-     * Closes study mode and returns to the normal view layout.
-     */
-    function closeEdit() {
-        if(isRecording) stopRecording();
+    async function closeEdit() {
+        if (isRecording) stopRecording();
+        if (saveTimeout) {
+            clearTimeout(saveTimeout);
+            await flushSaveEdit();
+        }
         isStudyMode.set(false);
         isHeaderCollapsed.set(false);
         editingTask.set(null);
     }
 
     /**
-     * Persists the current editingTask state to the server.
+     * Debounced persistence so rapid Apple Pencil strokes don't spam HTTP PUTs or trigger store reloads mid-word.
      */
-    async function saveEdit() {
+    function saveEdit(immediate = false) {
+        if (saveTimeout) clearTimeout(saveTimeout);
+        if (immediate) {
+            return flushSaveEdit();
+        }
+        saveTimeout = setTimeout(() => {
+            flushSaveEdit();
+        }, 650);
+    }
+
+    async function flushSaveEdit() {
+        saveTimeout = null;
+        if (!$editingTask) return;
+        const taskSnapshot = $editingTask;
+        // Strip runtime-only cachedPath/bbox before saving to DB to keep payload small
+        const serializableStrokes = allStrokes.map(({ cachedPath, bbox, ...rest }) => rest);
+        taskSnapshot.handwriting_data = JSON.stringify(serializableStrokes);
+
+        // Update local tasks store in-place without triggering a full GET /api/tasks roundtrip
+        tasks.update(list => list.map(t => t.id === taskSnapshot.id ? { ...t, ...taskSnapshot } : t));
+
         saveQueue = saveQueue.catch(() => {}).then(async () => {
-            $editingTask.handwriting_data = JSON.stringify(allStrokes);
-            await fetch(`/api/tasks/${$editingTask.id}`, {
+            await fetch(`/api/tasks/${taskSnapshot.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    ...$editingTask,
-                    dueDate: $editingTask.due_date,
-                    predecessors: $editingTask.predecessors,
-                    assignees: $editingTask.assignees,
-                    reminderTime: $editingTask.reminder_time,
-                    reminderFrequency: $editingTask.reminder_frequency
+                    ...taskSnapshot,
+                    dueDate: taskSnapshot.due_date,
+                    predecessors: taskSnapshot.predecessors,
+                    assignees: taskSnapshot.assignees,
+                    reminderTime: taskSnapshot.reminder_time,
+                    reminderFrequency: taskSnapshot.reminder_frequency
                 })
             });
-            await loadTasks();
         });
         return saveQueue;
     }
@@ -129,7 +224,7 @@
     function isStylusOrPen(e) {
         const pType = e.pointerType;
         const tType = e.touchType || (e.touches && e.touches[0] && e.touches[0].touchType);
-        return pType === 'pen' || tType === 'stylus' || (e.pressure !== undefined && e.pressure > 0 && e.pointerType !== 'mouse');
+        return pType === 'pen' || tType === 'stylus' || (e.pressure !== undefined && e.pressure > 0 && pType !== 'mouse' && pType !== 'touch');
     }
 
     function updatePanzoomState() {
@@ -158,17 +253,21 @@
             beforeMouseDown: function(e) {
                 // Return true to CANCEL panzoom (allowing drawing/interaction)
                 // Return false to ALLOW panzoom (allowing panning/zooming)
-
                 if (!smartPan) {
                     if (activeTool === 'pan') return false;
                     return true;
                 }
-
                 const isPen = isStylusOrPen(e);
                 if (isPen) return true; // Pen bypasses panzoom to draw ink
-                if (activeTool === 'pan') return false; // Pan tool allows panzoom
-                if (e.pointerType === 'touch') return false; // Finger touch allows panzoom
-                return true; // Prevent panzoom for mouse drawing
+                if (activeTool === 'pan') return false;
+                if (e.pointerType === 'touch') return false; // Finger touch pans
+                return true; // Mouse draws
+            },
+            onTouch: function(e) {
+                const isTouchStylus = e.touches && e.touches[0] && e.touches[0].touchType === 'stylus';
+                if (isTouchStylus) return false; // Do not let panzoom capture Apple Pencil touch events
+                if (!smartPan && activeTool !== 'pan') return false;
+                return true;
             }
         });
         updatePanzoomState();
@@ -205,7 +304,7 @@
 
     function clearHandwriting() {
         allStrokes = allStrokes.filter(s => (s.page || 1) !== pageNum);
-        saveEdit();
+        saveEdit(true);
     }
 
     function getAudioTimestamp() {
@@ -227,93 +326,189 @@
         return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
     }
 
-    function getPointerPos(e) {
-        const svg = e.currentTarget;
-        const rect = svg.getBoundingClientRect();
-        // Calculate relative coordinates in SVG user space safely for Safari / iOS WebKit
+    function cacheCoordinateSystem(svgEl) {
+        cachedRect = svgEl.getBoundingClientRect();
+        const totalHeight = pdfHeight + extraPageHeight;
+        cachedScaleX = pdfWidth / (cachedRect.width || pdfWidth);
+        cachedScaleY = totalHeight / (cachedRect.height || totalHeight);
+    }
+
+    function getPointerPosFromCached(e) {
+        if (!cachedRect && svgRef) cacheCoordinateSystem(svgRef);
         const clientX = e.clientX !== undefined ? e.clientX : (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
         const clientY = e.clientY !== undefined ? e.clientY : (e.touches && e.touches[0] ? e.touches[0].clientY : 0);
-        const scaleX = pdfWidth / (rect.width || pdfWidth);
-        const totalHeight = pdfHeight + extraPageHeight;
-        const scaleY = totalHeight / (rect.height || totalHeight);
-        const x = (clientX - rect.left) * scaleX;
-        const y = (clientY - rect.top) * scaleY;
+        const x = (clientX - cachedRect.left) * cachedScaleX;
+        const y = (clientY - cachedRect.top) * cachedScaleY;
         const pressure = e.pressure !== undefined && e.pressure > 0 ? e.pressure : 0.5;
         return [x, y, pressure];
+    }
+
+    function scheduleActiveStrokeRender() {
+        if (rafId) return;
+        rafId = requestAnimationFrame(() => {
+            rafId = null;
+            if (!activePathRef) return;
+            if (currentPoints.length === 0) {
+                activePathRef.setAttribute('d', '');
+                return;
+            }
+            const activeSize = activeTool === 'highlighter' ? strokeSize * 3 : strokeSize;
+            const d = computeStrokePath(currentPoints, activeSize);
+            activePathRef.setAttribute('d', d);
+        });
     }
 
     function svgDown(e) {
         const isPen = isStylusOrPen(e);
         if (activeTool === 'pan' && !smartPan) return;
-        // Finger touch always pans/zooms unless drawing with stylus/pen
+        if (activeTool === 'pan' && !isPen) return;
+        // Finger touch always pans/zooms when Smart Touch Pan is enabled
         if (smartPan && e.pointerType === 'touch' && !isPen) return;
 
-        if (e.preventDefault) e.preventDefault();
+        // Temporarily pause panzoom while pen is actively down so no stray gesture interferes
+        if (pzInstance && isPen) {
+            pzInstance.pause();
+        }
+
+        if (e.cancelable) e.preventDefault();
+        e.stopPropagation();
+
+        activePointerId = e.pointerId;
+        cacheCoordinateSystem(e.currentTarget);
+
         try {
             if (e.pointerId !== undefined && e.currentTarget.setPointerCapture) {
                 e.currentTarget.setPointerCapture(e.pointerId);
             }
         } catch(err) {}
 
-        const pt = getPointerPos(e);
+        const pt = getPointerPosFromCached(e);
 
         if (activeTool === 'eraser') {
+            eraserDirty = false;
             eraseStrokeAt(pt[0], pt[1]);
             return;
         }
 
         currentPoints = [pt];
+        if (activePathRef) {
+            activePathRef.setAttribute('fill', strokeColor);
+            activePathRef.setAttribute('opacity', activeTool === 'highlighter' ? '0.4' : '1.0');
+        }
+        scheduleActiveStrokeRender();
     }
 
     function svgMove(e) {
+        if (activePointerId !== null && e.pointerId !== activePointerId) return;
+
         const isPen = isStylusOrPen(e);
         if (smartPan && e.pointerType === 'touch' && !isPen && currentPoints.length === 0) return;
 
         if (activeTool === 'eraser') {
-            if (e.buttons === 1 || isPen) {
-                const pt = getPointerPos(e);
-                eraseStrokeAt(pt[0], pt[1]);
+            if (e.buttons === 1 || isPen || activePointerId === e.pointerId) {
+                const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+                const sampleEvents = events.length > 0 ? events : [e];
+                for (let i = 0; i < sampleEvents.length; i++) {
+                    const pt = getPointerPosFromCached(sampleEvents[i]);
+                    eraseStrokeAt(pt[0], pt[1]);
+                }
             }
             return;
         }
 
         if (currentPoints.length === 0) return;
-        if (e.preventDefault) e.preventDefault();
+        if (e.cancelable) e.preventDefault();
 
-        const pt = getPointerPos(e);
-        currentPoints = [...currentPoints, pt];
+        // Capture all coalesced Apple Pencil samples (up to 240Hz on iPad Pro) without dropping curves
+        const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+        const sampleEvents = events.length > 0 ? events : [e];
+        for (let i = 0; i < sampleEvents.length; i++) {
+            currentPoints.push(getPointerPosFromCached(sampleEvents[i]));
+        }
+
+        scheduleActiveStrokeRender();
     }
 
     function svgUp(e) {
+        if (activePointerId !== null && e.pointerId !== undefined && e.pointerId !== activePointerId) return;
+
+        try {
+            if (e.pointerId !== undefined && e.currentTarget && e.currentTarget.releasePointerCapture) {
+                if (e.currentTarget.hasPointerCapture && e.currentTarget.hasPointerCapture(e.pointerId)) {
+                    e.currentTarget.releasePointerCapture(e.pointerId);
+                }
+            }
+        } catch (err) {}
+
+        activePointerId = null;
+        cachedRect = null;
+        updatePanzoomState();
+
+        if (activeTool === 'eraser') {
+            if (eraserDirty) {
+                eraserDirty = false;
+                saveEdit();
+            }
+            return;
+        }
+
         if (currentPoints.length === 0) return;
 
+        if (rafId) {
+            cancelAnimationFrame(rafId);
+            rafId = null;
+        }
+        if (activePathRef) {
+            activePathRef.setAttribute('d', '');
+        }
+
         const ts = getAudioTimestamp();
+        const strokeActualSize = activeTool === 'highlighter' ? strokeSize * 3 : strokeSize;
+        const pointsCopy = currentPoints;
+        currentPoints = [];
+
         const newStroke = {
             id: 'stroke_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
             page: pageNum,
             timestamp: ts,
-            points: currentPoints,
-            color: activeTool === 'highlighter' ? strokeColor : strokeColor,
-            size: activeTool === 'highlighter' ? strokeSize * 3 : strokeSize,
-            isHighlighter: activeTool === 'highlighter'
+            points: pointsCopy,
+            color: strokeColor,
+            size: strokeActualSize,
+            isHighlighter: activeTool === 'highlighter',
+            cachedPath: computeStrokePath(pointsCopy, strokeActualSize),
+            bbox: computeStrokeBBox(pointsCopy, strokeActualSize + 15)
         };
 
         allStrokes = [...allStrokes, newStroke];
-        currentPoints = [];
         saveEdit();
     }
 
     function eraseStrokeAt(x, y) {
-        const threshold = 15;
-        allStrokes = allStrokes.filter(stroke => {
+        const threshold = 16;
+        let removed = false;
+        const nextStrokes = allStrokes.filter(stroke => {
             if ((stroke.page || 1) !== pageNum) return true;
-            for (let pt of stroke.points) {
-                const dist = Math.hypot(pt[0] - x, pt[1] - y);
-                if (dist < threshold) return false; // Delete stroke
+            // Fast bounding-box rejection before checking point distances
+            if (stroke.bbox) {
+                if (x < stroke.bbox.minX || x > stroke.bbox.maxX || y < stroke.bbox.minY || y > stroke.bbox.maxY) {
+                    return true;
+                }
+            }
+            const pts = stroke.points;
+            for (let i = 0; i < pts.length; i++) {
+                const dist = Math.hypot(pts[i][0] - x, pts[i][1] - y);
+                if (dist < threshold) {
+                    removed = true;
+                    return false;
+                }
             }
             return true;
         });
-        saveEdit();
+
+        if (removed) {
+            allStrokes = nextStrokes;
+            eraserDirty = true;
+        }
     }
 
     function generateSvgStringFromStrokes(targetStrokes) {
@@ -339,7 +534,7 @@
             for (let i = 0; i < len; i++) {
                 offsetPoints[i] = [pts[i][0] - minX, pts[i][1] - minY, pts[i][2]];
             }
-            let d = getSvgPathFromStroke(getStroke(offsetPoints, { size: stroke.size || 5, thinning: 0.5, smoothing: 0.5 }));
+            let d = computeStrokePath(offsetPoints, stroke.size || 5);
             const opacity = stroke.isHighlighter ? 0.4 : 1.0;
             return acc + `<path d="${d}" fill="${stroke.color || '#3b82f6'}" opacity="${opacity}" />`;
         }, "");
@@ -353,7 +548,7 @@
         let svgStr = generateSvgStringFromStrokes(pageStrokes);
         const timeBadge = `\n\n> ⏱️ **Audio Timestamp [${formatTime(ts)}] - Slide ${pageNum}**\n\n` + svgStr + "\n\n";
         $editingTask.description = ($editingTask.description || '') + timeBadge;
-        saveEdit();
+        saveEdit(true);
         renderPreview();
     }
 
@@ -452,7 +647,7 @@
                     $editingTask.drive_audio_id = data.fileId;
                     $editingTask.audio_url = `/api/drive/download/${data.fileId}`;
                 }
-                saveEdit();
+                saveEdit(true);
             }
         } catch (e) { console.error("Drive upload failed", e); }
     }
@@ -495,7 +690,7 @@
             mediaRecorder.stop();
             isRecording = false;
             $editingTask.slide_tracking = JSON.stringify(slideTimeline);
-            saveEdit();
+            saveEdit(true);
             if (recognition) recognition.stop();
         }
     }
@@ -557,7 +752,7 @@
 {#if $editingTask}
 <div class="study-workspace">
     <div class="study-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
-        <input class="ws-title-input" type="text" bind:value={$editingTask.title} placeholder="Document Title" style="background:transparent; border:none; border-bottom:1px solid var(--border-color); color: var(--text-color); font-size:1.4rem; font-weight:bold; width:60%; padding:8px 0;" on:input={saveEdit} />
+        <input class="ws-title-input" type="text" bind:value={$editingTask.title} placeholder="Document Title" style="background:transparent; border:none; border-bottom:1px solid var(--border-color); color: var(--text-color); font-size:1.4rem; font-weight:bold; width:60%; padding:8px 0;" on:input={() => saveEdit()} />
         <button class="btn secondary" on:click={closeEdit}>Exit Study Mode</button>
     </div>
 
@@ -581,7 +776,7 @@
 
             <div class="transcript-box" id="transcript-scroll-box" style="margin-bottom:15px;">
                 <p class="section-label" style="font-size:0.75rem; margin-bottom:6px;">Live Transcription</p>
-                <textarea class="transcription-box" bind:value={$editingTask.transcription} on:input={saveEdit} placeholder="Your live speech will appear here..."></textarea>
+                <textarea class="transcription-box" bind:value={$editingTask.transcription} on:input={() => saveEdit()} placeholder="Your live speech will appear here..."></textarea>
             </div>
 
             <div class="timeline-box" style="flex:1; display:flex; flex-direction:column; min-height:0; border-top: 1px solid var(--border-color); padding-top: 10px;">
@@ -590,7 +785,7 @@
                     {#if allStrokes.length === 0}
                         <p style="font-size:0.75rem; color:#64748b;">No handwritten strokes recorded yet. Write on the canvas with Apple Pencil or pen!</p>
                     {:else}
-                        {#each allStrokes as stroke}
+                        {#each allStrokes as stroke (stroke.id)}
                             <button
                                 id="stroke-item-{stroke.id}"
                                 class="timeline-item {activeStrokeId === stroke.id ? 'active' : ''}"
@@ -650,6 +845,7 @@
                             {/if}
 
                             <div style="display:flex; gap:8px; align-items:center;">
+                                <button class="btn secondary small-btn" style="padding:4px 8px; font-size:0.8rem;" on:click={addBlankSpace}>➕ Extend Page</button>
                                 <button class="btn secondary small-btn" style="padding:4px 8px; font-size:0.8rem;" on:click={clearHandwriting}>🗑️ Clear Ink</button>
                                 <button class="btn primary small-btn" style="padding:4px 8px; font-size:0.8rem;" on:click={insertPdfSvgToNotes}>➕ Insert Ink to Notes</button>
                             </div>
@@ -700,29 +896,29 @@
 
                             <!-- Vector Handwriting Layer -->
                             <svg
+                                bind:this={svgRef}
                                 class="drawing-layer svg-layer"
                                 style="width: {pdfWidth}px; height: {pdfHeight + extraPageHeight}px; pointer-events: {(!smartPan && activeTool === 'pan') ? 'none' : 'auto'}; cursor: {activeTool === 'eraser' ? 'cell' : 'crosshair'}; touch-action: {activeTool === 'pan' ? 'auto' : 'none'};"
                                 on:pointerdown={svgDown}
                                 on:pointermove={svgMove}
                                 on:pointerup={svgUp}
-                                on:pointerleave={svgUp}
                                 on:pointercancel={svgUp}
                             >
-                                {#each pageStrokes as stroke}
+                                {#each pageStrokes as stroke (stroke.id)}
                                     <path
-                                        d={getSvgPathFromStroke(getStroke(stroke.points, { size: stroke.size || 5, thinning: 0.5, smoothing: 0.5 }))}
+                                        d={stroke.cachedPath || computeStrokePath(stroke.points, stroke.size || 5)}
                                         fill={stroke.color || '#3b82f6'}
                                         opacity={stroke.isHighlighter ? 0.4 : 1.0}
                                     />
                                 {/each}
 
-                                {#if currentPoints.length > 0}
-                                    <path
-                                        d={getSvgPathFromStroke(getStroke(currentPoints, { size: activeTool === 'highlighter' ? strokeSize * 3 : strokeSize, thinning: 0.5, smoothing: 0.5 }))}
-                                        fill={strokeColor}
-                                        opacity={activeTool === 'highlighter' ? 0.4 : 1.0}
-                                    />
-                                {/if}
+                                <!-- Active in-progress stroke updated via requestAnimationFrame without full Svelte re-renders -->
+                                <path
+                                    bind:this={activePathRef}
+                                    d=""
+                                    fill={strokeColor}
+                                    opacity={activeTool === 'highlighter' ? 0.4 : 1.0}
+                                />
                             </svg>
                         </div>
                     </div>
@@ -749,7 +945,7 @@
 
 <style>
     .study-workspace { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-    .study-layout-container { display: flex; -webkit-user-select: none; user-select: none; gap: 20px; width: 100%; flex: 1; transition: flex 0.3s ease; min-height: 0; }
+    .study-layout-container { display: flex; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; gap: 20px; width: 100%; flex: 1; transition: flex 0.3s ease; min-height: 0; }
 
     .study-sidebar { width: 300px; flex-shrink: 0; display: flex; flex-direction: column; background: var(--sidebar-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 15px; box-sizing: border-box; overflow: hidden; }
     .pane-header { font-size: 0.8rem; font-weight: bold; color: #666; text-transform: uppercase; letter-spacing: 1px; padding-bottom: 6px; border-bottom: 1px solid var(--border-color); margin-bottom: 12px; }
@@ -784,11 +980,11 @@
     .tool-btn { background: var(--input-bg); color: var(--text-color); border: 1px solid var(--border-color); padding: 6px 12px; border-radius: 4px; font-size: 0.85rem; cursor: pointer; transition: 0.15s; touch-action: manipulation; }
     .tool-btn.active { background: var(--btn-primary-bg); font-weight: bold; border-color: var(--btn-primary-bg); }
 
-    .canvas-container { flex: 1; -webkit-user-select: none; user-select: none; overflow: hidden; display: flex; justify-content: center; align-items: center; padding: 15px; background: var(--input-bg); cursor: grab;}
+    .canvas-container { flex: 1; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; overflow: hidden; display: flex; justify-content: center; align-items: center; padding: 15px; background: var(--input-bg); cursor: grab;}
     .canvas-container:active { cursor: grabbing; }
     .pdf-base-layer { display: block; background: #ffffff; box-shadow: 0 4px 20px rgba(0,0,0,0.5); border-radius: 4px; max-width: 100%; object-fit: contain; }
 
-    .drawing-layer { position: absolute; top: 0; left: 0; touch-action: none; z-index: 10; }
+    .drawing-layer { position: absolute; top: 0; left: 0; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; z-index: 10; }
     .svg-layer { z-index: 11; }
 
     .notes-block { flex: 1; display: flex; flex-direction: column; background: var(--sidebar-bg); padding: 15px; border-radius: 8px; border: 1px solid var(--border-color); min-height: 0; }

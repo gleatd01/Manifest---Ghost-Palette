@@ -43,7 +43,7 @@
         <button class:active={$currentView === 'agenda'} on:click={() => $currentView = 'agenda'}>Agenda</button>
         <button class:active={$currentView === 'gantt'} on:click={() => $currentView = 'gantt'}>Gantt</button>
         <button class:active={$currentView === 'settings'} on:click={() => $currentView = 'settings'}>Settings</button>
-        <button class:active={$currentView === 'inktest'} on:click={() => $currentView = 'inktest'} style="color: #60a5fa;">✍️ Ink Test</button>
+        <button class:active={$currentView === 'audiotest'} on:click={() => $currentView = 'audiotest'} style="color: #34d399;">🎙️ Audio Test</button>
         {#if isAdmin}
             <button class:active={$currentView === 'admin'} on:click={() => $currentView = 'admin'} style="color: #f59e0b;">Admin ⚡</button>
         {/if}

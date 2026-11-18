@@ -16,7 +16,6 @@
         gantt: () => import('./views/GanttView.svelte'),
         settings: () => import('./views/SettingsView.svelte'),
         admin: () => import('./views/AdminView.svelte'),
-        inktest: () => import('./views/InkTestView.svelte'),
     };
 
     let activeComponent = null;

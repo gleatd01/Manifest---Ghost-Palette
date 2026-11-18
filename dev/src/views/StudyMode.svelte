@@ -41,9 +41,12 @@
 
     // Media variables
     let mediaRecorder = null;
+    let mediaStream = null;
     let audioChunks = [];
     let isRecording = false;
     let recognition = null;
+    let interimTranscript = '';
+    let speechStatusMsg = '';
     let recordingStartTime = 0;
     let slideTimeline = [];
     let activePlaybackPage = 1;
@@ -153,19 +156,51 @@
 
     function initSpeechRecognition() {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (SpeechRecognition) {
-            recognition = new SpeechRecognition();
-            recognition.continuous = true;
-            recognition.interimResults = true;
-            recognition.onresult = (event) => {
-                for (let i = event.resultIndex; i < event.results.length; ++i) {
-                    if (event.results[i].isFinal) {
-                        $editingTask.transcription = ($editingTask.transcription || '') + event.results[i][0].transcript + ' ';
-                        saveEdit();
-                    }
-                }
-            };
+        if (!SpeechRecognition) {
+            speechStatusMsg = 'Browser speech recognition unavailable';
+            return;
         }
+        recognition = new SpeechRecognition();
+        recognition.lang = navigator.language || 'en-US';
+        recognition.continuous = true;
+        recognition.interimResults = true;
+
+        recognition.onresult = (event) => {
+            let interim = '';
+            let addedFinal = false;
+            for (let i = event.resultIndex; i < event.results.length; ++i) {
+                const transcriptPiece = event.results[i][0].transcript;
+                if (event.results[i].isFinal) {
+                    $editingTask.transcription = ($editingTask.transcription || '') + transcriptPiece.trim() + ' ';
+                    addedFinal = true;
+                } else {
+                    interim += transcriptPiece;
+                }
+            }
+            interimTranscript = interim;
+            if (addedFinal) saveEdit();
+        };
+
+        recognition.onerror = (event) => {
+            console.warn("SpeechRecognition warning/error:", event.error);
+            if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+                speechStatusMsg = 'Speech recognition blocked (enable Siri/Dictation or permissions)';
+            } else if (event.error !== 'no-speech' && event.error !== 'aborted') {
+                speechStatusMsg = `Speech note: ${event.error}`;
+            }
+        };
+
+        recognition.onend = () => {
+            interimTranscript = '';
+            // Auto-restart on iPadOS/Safari where continuous recognition stops after each pause
+            if (isRecording) {
+                setTimeout(() => {
+                    if (isRecording && recognition) {
+                        try { recognition.start(); } catch (e) {}
+                    }
+                }, 250);
+            }
+        };
     }
 
     async function closeEdit() {
@@ -621,9 +656,25 @@
         }
     }
 
-    async function uploadFileToDrive(file, type) {
+    function getSupportedAudioMime() {
+        if (typeof MediaRecorder === 'undefined') return { mimeType: '', ext: 'webm' };
+        const candidates = [
+            { mimeType: 'audio/mp4', ext: 'm4a' },
+            { mimeType: 'audio/webm;codecs=opus', ext: 'webm' },
+            { mimeType: 'audio/webm', ext: 'webm' },
+            { mimeType: 'audio/ogg;codecs=opus', ext: 'ogg' }
+        ];
+        if (MediaRecorder.isTypeSupported) {
+            for (const c of candidates) {
+                if (MediaRecorder.isTypeSupported(c.mimeType)) return c;
+            }
+        }
+        return { mimeType: '', ext: 'm4a' };
+    }
+
+    async function uploadFileToDrive(file, type, ext = 'webm') {
         const formData = new FormData();
-        formData.append('file', file, file.name || `recording_${Date.now()}.webm`);
+        formData.append('file', file, file.name || `recording_${Date.now()}.${ext}`);
 
         const tempUrl = URL.createObjectURL(file);
         if (type === 'pdf') {
@@ -658,41 +709,65 @@
     }
 
     async function startRecording() {
+        speechStatusMsg = '';
+        interimTranscript = '';
+
+        // 1. Start SpeechRecognition FIRST directly inside the user click gesture (required by iPadOS WebKit)
+        if (recognition) {
+            try {
+                if (!$editingTask.transcription) $editingTask.transcription = '';
+                $editingTask.transcription += '\n--- Recording Started ---\n';
+                recognition.start();
+                speechStatusMsg = 'Listening for speech...';
+            } catch (recErr) {
+                console.warn("SpeechRecognition start warning:", recErr);
+            }
+        }
+
+        // 2. Request microphone stream and start MediaRecorder with iPadOS-compatible MIME type
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            mediaRecorder = new MediaRecorder(stream);
+            mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const { mimeType, ext } = getSupportedAudioMime();
+            mediaRecorder = mimeType ? new MediaRecorder(mediaStream, { mimeType }) : new MediaRecorder(mediaStream);
             audioChunks = [];
 
-            mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
+            mediaRecorder.ondataavailable = e => { if (e.data && e.data.size > 0) audioChunks.push(e.data); };
             mediaRecorder.onstop = async () => {
-                const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-                uploadFileToDrive(audioBlob, 'audio');
+                const actualType = (mediaRecorder && mediaRecorder.mimeType) || mimeType || 'audio/mp4';
+                const audioBlob = new Blob(audioChunks, { type: actualType });
+                uploadFileToDrive(audioBlob, 'audio', ext);
+                if (mediaStream) {
+                    mediaStream.getTracks().forEach(t => t.stop());
+                    mediaStream = null;
+                }
             };
 
             recordingStartTime = Date.now();
             slideTimeline = [{ time: 0, page: pageNum }];
-            mediaRecorder.start();
+            mediaRecorder.start(1000);
             isRecording = true;
-
-            if (recognition) {
-                if (!$editingTask.transcription) $editingTask.transcription = '';
-                $editingTask.transcription += '\n--- Recording Started ---\n';
-                recognition.start();
-            }
         } catch (err) {
             console.error("Microphone access denied or failed", err);
+            speechStatusMsg = `Mic error: ${err.message || err.name}`;
+            if (recognition) {
+                try { recognition.stop(); } catch (e) {}
+            }
             alert("Could not start recording. Please check microphone permissions.");
         }
     }
 
     function stopRecording() {
-        if (mediaRecorder && isRecording) {
-            mediaRecorder.stop();
-            isRecording = false;
-            $editingTask.slide_tracking = JSON.stringify(slideTimeline);
-            saveEdit(true);
-            if (recognition) recognition.stop();
+        isRecording = false;
+        interimTranscript = '';
+        speechStatusMsg = '';
+        if (recognition) {
+            try { recognition.stop(); } catch (e) {}
         }
+        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+            try { mediaRecorder.stop(); } catch (e) {}
+        }
+        $editingTask.slide_tracking = JSON.stringify(slideTimeline);
+        saveEdit(true);
     }
 
     function handleAudioTimeUpdate(e) {
@@ -775,8 +850,16 @@
             {/if}
 
             <div class="transcript-box" id="transcript-scroll-box" style="margin-bottom:15px;">
-                <p class="section-label" style="font-size:0.75rem; margin-bottom:6px;">Live Transcription</p>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                    <p class="section-label" style="font-size:0.75rem; margin:0;">Live Transcription</p>
+                    {#if speechStatusMsg}
+                        <span style="font-size:0.68rem; color:#34d399;">{speechStatusMsg}</span>
+                    {/if}
+                </div>
                 <textarea class="transcription-box" bind:value={$editingTask.transcription} on:input={() => saveEdit()} placeholder="Your live speech will appear here..."></textarea>
+                {#if interimTranscript}
+                    <div style="font-size:0.75rem; color:#60a5fa; padding:4px 6px; font-style:italic;">🎤 {interimTranscript}</div>
+                {/if}
             </div>
 
             <div class="timeline-box" style="flex:1; display:flex; flex-direction:column; min-height:0; border-top: 1px solid var(--border-color); padding-top: 10px;">
