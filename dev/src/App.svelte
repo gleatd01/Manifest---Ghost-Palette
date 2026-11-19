@@ -18,6 +18,7 @@
         gantt: () => import('./views/GanttView.svelte'),
         settings: () => import('./views/SettingsView.svelte'),
         admin: () => import('./views/AdminView.svelte'),
+        mathlab: () => import('./views/MathLabView.svelte'),
     };
 
     let activeComponent = ListView;
