@@ -8,6 +8,7 @@
 
     // --- Study Mode Local State ---
     let activeTab = 'handwriting'; // 'handwriting' or 'markdown'
+    let mdViewMode = 'split'; // 'split' (desktop default), 'edit', or 'preview'
     let activeTool = 'pen'; // 'pen', 'highlighter', 'eraser', 'pan'
     let smartPan = true; // Default ON for iPad: Finger touch pans, Apple Pencil writes
     let strokeColor = '#3b82f6';
@@ -139,6 +140,10 @@
 
     // Initialization logic for Study Mode
     onMount(async () => {
+        if (typeof window !== 'undefined' && window.innerWidth <= 768) {
+            isAudioSidebarCollapsed = true;
+            mdViewMode = 'edit';
+        }
         if ($editingTask.slide_tracking) {
             try { slideTimeline = JSON.parse($editingTask.slide_tracking); } catch(e) { slideTimeline = []; }
         } else {
@@ -907,29 +912,28 @@
 
 {#if $editingTask}
 <div class="study-workspace">
-    <div class="study-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; gap:10px;">
-        <div style="display:flex; align-items:center; gap:10px; flex:1;">
+    <div class="study-header">
+        <div class="study-header-left">
             <button
-                class="btn secondary small-btn"
-                style="padding: 6px 10px; font-size: 0.8rem; white-space: nowrap;"
+                class="btn secondary small-btn audio-toggle-btn {!isAudioSidebarCollapsed ? 'active-audio-btn' : ''}"
                 on:click={() => isAudioSidebarCollapsed = !isAudioSidebarCollapsed}
                 title={isAudioSidebarCollapsed ? 'Show Audio & Transcript Panel' : 'Hide Audio Panel to maximize Notes'}
             >
-                {isAudioSidebarCollapsed ? '▶ 🎙️ Show Audio' : '◀ Hide Audio'}
+                {isAudioSidebarCollapsed ? '🎙️ Audio' : '◀ Hide Audio'}
             </button>
             {#if isAudioSidebarCollapsed}
                 {#if !isRecording}
-                    <button class="btn action-btn record-btn" style="padding: 6px 12px; font-size: 0.8rem;" on:click={startRecording}>🔴 Record</button>
+                    <button class="btn action-btn record-btn compact-rec-btn" on:click={startRecording}>🔴 Rec</button>
                 {:else}
-                    <button class="btn action-btn stop-btn" style="padding: 6px 12px; font-size: 0.8rem;" on:click={stopRecording}>⏹ Stop</button>
+                    <button class="btn action-btn stop-btn compact-rec-btn" on:click={stopRecording}>⏹ Stop</button>
                 {/if}
                 {#if interimTranscript}
-                    <span style="font-size:0.78rem; color:#60a5fa; font-style:italic; max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">🎤 {interimTranscript}</span>
+                    <span class="header-interim-pill">🎤 {interimTranscript}</span>
                 {/if}
             {/if}
-            <input class="ws-title-input" type="text" bind:value={$editingTask.title} placeholder="Document Title" style="background:transparent; border:none; border-bottom:1px solid var(--border-color); color: var(--text-color); font-size:1.3rem; font-weight:bold; flex:1; padding:6px 0;" on:input={() => saveEdit()} />
+            <input class="ws-title-input" type="text" bind:value={$editingTask.title} placeholder="Document Title" on:input={() => saveEdit()} />
         </div>
-        <button class="btn secondary" on:click={closeEdit}>Exit Study Mode</button>
+        <button class="btn secondary exit-study-btn" on:click={closeEdit}>✕ Exit</button>
     </div>
 
     <div class="study-layout-container {$isHeaderCollapsed ? 'maximized' : ''}">
@@ -1077,66 +1081,67 @@
             <div class="tab-content {activeTab === 'handwriting' ? 'active' : ''}">
                 <div class="pdf-panel">
                     <!-- Toolbar for PDF / Handwriting Canvas -->
-                    <div class="panel-tools" style="display:flex; flex-direction:column; gap:8px; padding:10px; background:var(--sidebar-bg); border-bottom:1px solid var(--border-color);">
-                        <div style="display:flex; justify-content:space-between; align-items:center; width:100%;">
+                    <div class="panel-tools">
+                        <div class="panel-tools-top">
                             {#if !$editingTask.pdf_url}
-                                <div style="display:flex; gap:10px; align-items:center;">
-                                    <span style="font-weight:bold; font-size:0.9rem; color:var(--text-color);">📝 Blank Paper Canvas</span>
-                                    <label class="upload-btn" style="padding:4px 10px; font-size:0.8rem;">
+                                <div class="canvas-title-group">
+                                    <span class="canvas-title-label">📝 Blank Paper</span>
+                                    <label class="upload-btn">
                                         Upload PDF
                                         <input type="file" accept="application/pdf" style="display:none;" on:change={handlePdfUpload} />
                                     </label>
                                 </div>
                             {:else}
                                 <div class="pdf-nav">
-                                    <button on:click={() => renderPage(pageNum-1)} disabled={pageNum<=1}>Prev Slide</button>
-                                    <span style="font-weight: bold; color: #a5b4fc;">Slide {pageNum} {pdfDoc ? `/ ${pdfDoc.numPages}` : ''}</span>
-                                    <button on:click={() => renderPage(pageNum+1)} disabled={!pdfDoc || pageNum >= pdfDoc.numPages}>Next Slide</button>
+                                    <button on:click={() => renderPage(pageNum-1)} disabled={pageNum<=1}>◀ Prev</button>
+                                    <span class="slide-badge">Slide {pageNum} {pdfDoc ? `/ ${pdfDoc.numPages}` : ''}</span>
+                                    <button on:click={() => renderPage(pageNum+1)} disabled={!pdfDoc || pageNum >= pdfDoc.numPages}>Next ▶</button>
                                 </div>
                             {/if}
 
-                            <div style="display:flex; gap:8px; align-items:center;">
-                                <button class="btn secondary small-btn" style="padding:4px 8px; font-size:0.8rem;" on:click={addBlankSpace}>➕ Extend Page</button>
-                                <button class="btn secondary small-btn" style="padding:4px 8px; font-size:0.8rem;" on:click={clearHandwriting}>🗑️ Clear Ink</button>
-                                <button class="btn primary small-btn" style="padding:4px 8px; font-size:0.8rem;" on:click={insertPdfSvgToNotes}>➕ Insert Ink to Notes</button>
+                            <div class="canvas-action-btns">
+                                <button class="btn secondary small-btn" on:click={addBlankSpace}>➕ Extend</button>
+                                <button class="btn secondary small-btn" on:click={clearHandwriting}>🗑️ Clear</button>
+                                <button class="btn primary small-btn" on:click={insertPdfSvgToNotes}>➕ To Notes</button>
                             </div>
                         </div>
 
                         <!-- Stylus & Drawing Controls Toolbar -->
-                        <div class="hw-tools" style="display:flex; gap:12px; align-items:center; border-top: 1px solid var(--border-color); padding-top: 8px; touch-action: manipulation; z-index: 20; position: relative;">
-                            <div style="display:flex; gap:4px;">
+                        <div class="hw-tools">
+                            <div class="hw-tool-buttons">
                                 <button class="tool-btn {activeTool === 'pen' ? 'active' : ''}" on:click={() => { activeTool = 'pen'; updatePanzoomState(); }} title="Pen (Apple Pencil)">🖊️ Pen</button>
                                 <button class="tool-btn {activeTool === 'highlighter' ? 'active' : ''}" on:click={() => { activeTool = 'highlighter'; updatePanzoomState(); }} title="Highlighter">🖍️ Highlight</button>
                                 <button class="tool-btn {activeTool === 'eraser' ? 'active' : ''}" on:click={() => { activeTool = 'eraser'; updatePanzoomState(); }} title="Eraser">🧹 Eraser</button>
-                                <button class="tool-btn {activeTool === 'pan' ? 'active' : ''}" on:click={() => { activeTool = 'pan'; updatePanzoomState(); }} title="Pan / Zoom Workspace">🖐 Pan/Zoom</button>
+                                <button class="tool-btn {activeTool === 'pan' ? 'active' : ''}" on:click={() => { activeTool = 'pan'; updatePanzoomState(); }} title="Pan / Zoom Workspace">🖐 Pan</button>
                             </div>
 
                             <div class="smart-toggle">
-                                <label style="display:flex; align-items:center; gap:5px; font-size:0.8rem; cursor:pointer;" title="If ON: Touch automatically pans while Pen draws. If OFF: Strict mode (use Pan tool to move, Pen tool to draw)">
+                                <label style="display:flex; align-items:center; gap:5px; font-size:0.78rem; cursor:pointer; white-space:nowrap;" title="If ON: Touch automatically pans while Pen draws. If OFF: Strict mode (use Pan tool to move, Pen tool to draw)">
                                     <input type="checkbox" bind:checked={smartPan} on:change={updatePanzoomState} />
-                                    <span>🧠 Smart Touch Pan</span>
+                                    <span>🧠 Smart Pan</span>
                                 </label>
                             </div>
 
                             {#if activeTool !== 'eraser' && activeTool !== 'pan'}
-                                <div style="display:flex; gap:6px; align-items:center; margin-left:10px;">
-                                    <span style="font-size:0.75rem;">Color:</span>
+                                <div class="color-picker-row">
+                                    <span class="toolbar-mini-label">Color:</span>
                                     {#each ['#3b82f6', '#ef4444', '#10b981', '#eab308', '#ffffff', '#000000'] as color}
                                         <button
-                                            style="width:20px; height:20px; border-radius:50%; background:{color}; border: {strokeColor === color ? '2px solid white' : '1px solid #64748b'}; cursor:pointer; padding:0; touch-action: manipulation;"
+                                            class="color-dot-btn"
+                                            style="background:{color}; border: {strokeColor === color ? '2px solid white' : '1px solid #64748b'};"
                                             aria-label={`Set ink color ${color}`}
                                             on:click={() => strokeColor = color}
                                         ></button>
                                     {/each}
                                 </div>
 
-                                <div style="display:flex; gap:6px; align-items:center; margin-left:10px;">
-                                    <span style="font-size:0.75rem;">Size:</span>
-                                    <input type="range" min="2" max="20" bind:value={strokeSize} style="width:70px;" />
+                                <div class="size-slider-row">
+                                    <span class="toolbar-mini-label">Size:</span>
+                                    <input type="range" min="2" max="20" bind:value={strokeSize} style="width:65px;" />
                                 </div>
                             {/if}
 
-                            <span style="font-size:0.7rem; color:#94a3b8; margin-left:auto;">💡 Tip: Finger touch pans & zooms, Apple Pencil writes automatically!</span>
+                            <span class="hw-tip-text">💡 Finger pans & zooms, Apple Pencil writes!</span>
                         </div>
                     </div>
 
@@ -1179,12 +1184,17 @@
             <!-- TAB CONTENT: LaTeX / Markdown Notes -->
             <div class="tab-content {activeTab === 'markdown' ? 'active' : ''}">
                 <div class="notes-block">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                    <div class="md-header-bar">
                         <p class="section-label" style="font-size:0.75rem; margin:0;">LaTeX / Markdown Notes</p>
+                        <div class="md-mode-switcher">
+                            <button class="md-mode-btn {mdViewMode === 'edit' ? 'active' : ''}" on:click={() => mdViewMode = 'edit'}>✏️ Edit</button>
+                            <button class="md-mode-btn {mdViewMode === 'preview' ? 'active' : ''}" on:click={() => { mdViewMode = 'preview'; tick().then(renderPreview); }}>👁️ Preview</button>
+                            <button class="md-mode-btn split-only-btn {mdViewMode === 'split' ? 'active' : ''}" on:click={() => { mdViewMode = 'split'; tick().then(renderPreview); }}>◫ Split</button>
+                        </div>
                     </div>
 
-                    <div style="display:flex; gap:15px; flex:1; min-height:0;">
-                        <textarea bind:value={$editingTask.description} on:input={() => { saveEdit(); renderPreview(); }} placeholder="Type your notes here..."></textarea>
+                    <div class="md-editor-container mode-{mdViewMode}">
+                        <textarea class="md-textarea" bind:value={$editingTask.description} on:input={() => { saveEdit(); renderPreview(); }} placeholder="Type your notes here..."></textarea>
                         <div id="md-preview" class="markdown-body"></div>
                     </div>
                 </div>
@@ -1196,15 +1206,24 @@
 
 <style>
     .study-workspace { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-    .study-layout-container { display: flex; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; gap: 20px; width: 100%; flex: 1; transition: flex 0.3s ease; min-height: 0; }
+    .study-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 10px; flex-wrap: wrap; }
+    .study-header-left { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; flex-wrap: wrap; }
+    .audio-toggle-btn { padding: 6px 10px; font-size: 0.8rem; white-space: nowrap; flex-shrink: 0; }
+    .active-audio-btn { border-color: var(--btn-primary-bg) !important; color: #60a5fa !important; }
+    .compact-rec-btn { padding: 6px 10px; font-size: 0.8rem; white-space: nowrap; flex-shrink: 0; }
+    .header-interim-pill { font-size: 0.75rem; color: #60a5fa; font-style: italic; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ws-title-input { background: transparent; border: none; border-bottom: 1px solid var(--border-color); color: var(--text-color); font-size: 1.25rem; font-weight: bold; flex: 1; min-width: 140px; padding: 6px 0; }
+    .exit-study-btn { padding: 6px 12px; font-size: 0.82rem; white-space: nowrap; flex-shrink: 0; }
 
-    .study-sidebar { width: 310px; flex-shrink: 0; display: flex; flex-direction: column; background: var(--sidebar-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 15px; box-sizing: border-box; overflow: hidden; }
-    .pane-header { font-size: 0.8rem; font-weight: bold; color: #666; text-transform: uppercase; letter-spacing: 1px; padding-bottom: 6px; border-bottom: 1px solid var(--border-color); margin-bottom: 12px; }
+    .study-layout-container { display: flex; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; gap: 16px; width: 100%; flex: 1; transition: flex 0.3s ease; min-height: 0; }
+
+    .study-sidebar { width: 310px; flex-shrink: 0; display: flex; flex-direction: column; background: var(--sidebar-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px; box-sizing: border-box; overflow: hidden; }
+    .pane-header { font-size: 0.8rem; font-weight: bold; color: #666; text-transform: uppercase; letter-spacing: 1px; padding-bottom: 6px; border-bottom: 1px solid var(--border-color); margin-bottom: 10px; }
     .collapse-icon-btn { background: var(--input-bg); color: var(--text-color); border: 1px solid var(--border-color); border-radius: 4px; padding: 2px 8px; font-size: 0.7rem; cursor: pointer; text-transform: none; letter-spacing: 0; }
     .collapse-icon-btn:hover { background: var(--border-color); }
     .active-settings-btn { border-color: var(--btn-primary-bg) !important; color: #60a5fa !important; }
 
-    .audio-settings-menu { background: var(--input-bg); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px; margin-bottom: 12px; display: flex; flex-direction: column; gap: 8px; }
+    .audio-settings-menu { background: var(--input-bg); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 8px; }
     .settings-row { display: flex; flex-direction: column; gap: 4px; }
     .audio-mode-select { background: var(--sidebar-bg); color: var(--text-color); border: 1px solid var(--border-color); padding: 6px 8px; border-radius: 4px; font-size: 0.76rem; width: 100%; }
     .diag-mini-grid { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -1213,7 +1232,7 @@
     .diag-pill .err { color: #f87171; }
     .diag-log-header { display: flex; justify-content: space-between; align-items: center; font-size: 0.7rem; font-weight: bold; color: #94a3b8; padding-top: 4px; border-top: 1px solid var(--border-color); }
     .clear-log-btn { background: none; border: none; color: #60a5fa; font-size: 0.68rem; cursor: pointer; padding: 0; }
-    .diag-log-list { max-height: 110px; overflow-y: auto; font-family: monospace; font-size: 0.68rem; display: flex; flex-direction: column; gap: 3px; background: var(--sidebar-bg); padding: 6px; border-radius: 4px; border: 1px solid var(--border-color); }
+    .diag-log-list { max-height: 100px; overflow-y: auto; font-family: monospace; font-size: 0.68rem; display: flex; flex-direction: column; gap: 3px; background: var(--sidebar-bg); padding: 6px; border-radius: 4px; border: 1px solid var(--border-color); }
     .diag-log-row { display: flex; gap: 5px; line-height: 1.3; word-break: break-word; }
     .diag-ts { color: #64748b; flex-shrink: 0; }
     .diag-tag { font-weight: bold; flex-shrink: 0; }
@@ -1222,24 +1241,24 @@
     .diag-log-row.speech { color: #60a5fa; }
     .diag-log-row.recorder { color: #fbbf24; }
 
-    .audio-controls { display: flex; gap: 10px; margin-bottom: 12px; }
+    .audio-controls { display: flex; gap: 10px; margin-bottom: 10px; }
     .record-btn { background: var(--danger-bg); color: var(--text-color); }
     .record-btn:hover { background: #f43f5e; }
     .stop-btn { background: var(--badge-bg); color: var(--text-color); }
     .stop-btn:hover { background: #64748b; }
     .audio-player { width: 100%; height: 35px; border-radius: 4px; }
 
-    .transcript-box { height: 120px; display: flex; flex-direction: column; min-height: 0; }
-    .transcription-box { flex: 1; background: var(--input-bg); border: 1px solid var(--border-color); color: #94a3b8; padding: 10px; border-radius: 6px; font-family: inherit; resize: none; width: 100%; box-sizing: border-box; line-height: 1.4; outline: none; font-size: 0.8rem; }
+    .transcript-box { height: 110px; display: flex; flex-direction: column; min-height: 0; }
+    .transcription-box { flex: 1; background: var(--input-bg); border: 1px solid var(--border-color); color: #94a3b8; padding: 8px; border-radius: 6px; font-family: inherit; resize: none; width: 100%; box-sizing: border-box; line-height: 1.4; outline: none; font-size: 0.8rem; }
     .transcription-box:focus { border-color: var(--btn-primary-bg); }
 
     .timeline-item { transition: all 0.2s ease; }
     .timeline-item:hover { background: var(--border-color) !important; }
     .timeline-item.active { border-color: var(--btn-primary-bg) !important; background: var(--border-color) !important; font-weight: bold; }
 
-    .study-main-workspace { flex: 1; display: flex; flex-direction: column; gap: 15px; min-width: 0; overflow: hidden; }
-    .tab-nav { display: flex; gap: 10px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px; }
-    .tab-btn { background: var(--input-bg); color: var(--text-color); border: 1px solid var(--border-color); padding: 8px 16px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: all 0.2s ease; font-size: 0.9rem; }
+    .study-main-workspace { flex: 1; display: flex; flex-direction: column; gap: 10px; min-width: 0; overflow: hidden; }
+    .tab-nav { display: flex; gap: 8px; border-bottom: 1px solid var(--border-color); padding-bottom: 6px; overflow-x: auto; }
+    .tab-btn { background: var(--input-bg); color: var(--text-color); border: 1px solid var(--border-color); padding: 7px 14px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: all 0.2s ease; font-size: 0.85rem; white-space: nowrap; flex: 1; text-align: center; }
     .tab-btn:hover { background: var(--border-color); }
     .tab-btn.active { background: var(--btn-primary-bg); border-color: var(--btn-primary-bg); color: var(--text-color); }
 
@@ -1247,22 +1266,67 @@
     .tab-content.active { display: flex; }
 
     .pdf-panel { flex: 1; display: flex; flex-direction: column; background: var(--panel-bg); border-radius: 8px; border: 1px solid var(--border-color); overflow: hidden; min-height: 0; }
-    .pdf-nav { display: flex; align-items: center; gap: 15px; }
-    .pdf-nav button { background: var(--input-bg); color: var(--text-color); border: 1px solid var(--border-color); padding: 4px 12px; border-radius: 4px; font-weight: bold; cursor: pointer; font-size:0.8rem; }
+    .panel-tools { display: flex; flex-direction: column; gap: 8px; padding: 10px; background: var(--sidebar-bg); border-bottom: 1px solid var(--border-color); }
+    .panel-tools-top { display: flex; justify-content: space-between; align-items: center; width: 100%; flex-wrap: wrap; gap: 8px; }
+    .canvas-title-group { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .canvas-title-label { font-weight: bold; font-size: 0.85rem; color: var(--text-color); white-space: nowrap; }
+    .canvas-action-btns { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+    .canvas-action-btns .small-btn { padding: 4px 8px; font-size: 0.78rem; white-space: nowrap; }
 
-    .tool-btn { background: var(--input-bg); color: var(--text-color); border: 1px solid var(--border-color); padding: 6px 12px; border-radius: 4px; font-size: 0.85rem; cursor: pointer; transition: 0.15s; touch-action: manipulation; }
+    .pdf-nav { display: flex; align-items: center; gap: 10px; }
+    .pdf-nav button { background: var(--input-bg); color: var(--text-color); border: 1px solid var(--border-color); padding: 4px 10px; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.78rem; white-space: nowrap; }
+    .slide-badge { font-weight: bold; color: #a5b4fc; font-size: 0.82rem; white-space: nowrap; }
+
+    .hw-tools { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; border-top: 1px solid var(--border-color); padding-top: 8px; touch-action: manipulation; z-index: 20; position: relative; }
+    .hw-tool-buttons { display: flex; gap: 4px; flex-wrap: wrap; }
+    .tool-btn { background: var(--input-bg); color: var(--text-color); border: 1px solid var(--border-color); padding: 6px 10px; border-radius: 4px; font-size: 0.8rem; cursor: pointer; transition: 0.15s; touch-action: manipulation; white-space: nowrap; }
     .tool-btn.active { background: var(--btn-primary-bg); font-weight: bold; border-color: var(--btn-primary-bg); }
 
-    .canvas-container { flex: 1; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; overflow: hidden; display: flex; justify-content: center; align-items: center; padding: 15px; background: var(--input-bg); cursor: grab;}
+    .color-picker-row { display: flex; gap: 5px; align-items: center; }
+    .color-dot-btn { width: 20px; height: 20px; border-radius: 50%; cursor: pointer; padding: 0; touch-action: manipulation; flex-shrink: 0; }
+    .size-slider-row { display: flex; gap: 5px; align-items: center; }
+    .toolbar-mini-label { font-size: 0.72rem; color: #94a3b8; }
+    .hw-tip-text { font-size: 0.7rem; color: #94a3b8; margin-left: auto; }
+
+    .canvas-container { flex: 1; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; overflow: hidden; display: flex; justify-content: center; align-items: center; padding: 12px; background: var(--input-bg); cursor: grab; min-height: 260px; }
     .canvas-container:active { cursor: grabbing; }
     .pdf-base-layer { display: block; background: #ffffff; box-shadow: 0 4px 20px rgba(0,0,0,0.5); border-radius: 4px; max-width: 100%; object-fit: contain; }
 
     .drawing-layer { position: absolute; top: 0; left: 0; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; z-index: 10; }
     .svg-layer { z-index: 11; }
 
-    .notes-block { flex: 1; display: flex; flex-direction: column; background: var(--sidebar-bg); padding: 15px; border-radius: 8px; border: 1px solid var(--border-color); min-height: 0; }
-    .notes-block textarea { flex: 1; background: var(--input-bg); color: var(--text-color); border: 1px solid var(--border-color); padding: 15px; border-radius: 6px; font-family: inherit; resize: none; line-height: 1.5; outline: none; }
+    .notes-block { flex: 1; display: flex; flex-direction: column; background: var(--sidebar-bg); padding: 12px; border-radius: 8px; border: 1px solid var(--border-color); min-height: 0; }
+    .md-header-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 8px; flex-wrap: wrap; }
+    .md-mode-switcher { display: flex; gap: 4px; }
+    .md-mode-btn { background: var(--input-bg); color: var(--text-color); border: 1px solid var(--border-color); padding: 4px 10px; border-radius: 4px; font-size: 0.75rem; cursor: pointer; font-weight: 600; }
+    .md-mode-btn.active { background: var(--btn-primary-bg); border-color: var(--btn-primary-bg); }
+
+    .md-editor-container { display: flex; gap: 12px; flex: 1; min-height: 0; }
+    .md-editor-container.mode-edit .markdown-body { display: none; }
+    .md-editor-container.mode-preview .md-textarea { display: none; }
+
+    .notes-block textarea { flex: 1; background: var(--input-bg); color: var(--text-color); border: 1px solid var(--border-color); padding: 12px; border-radius: 6px; font-family: inherit; resize: none; line-height: 1.5; outline: none; font-size: 0.9rem; }
     .notes-block textarea:focus { border-color: var(--btn-primary-bg); }
-    .markdown-body { flex: 1; padding: 15px; background: var(--input-bg); border-radius: 6px; border: 1px solid var(--border-color); overflow-y: auto; line-height: 1.6; }
-    .upload-btn { background: var(--btn-primary-bg); padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: bold; color: var(--text-color); transition: 0.2s; }
+    .markdown-body { flex: 1; padding: 12px; background: var(--input-bg); border-radius: 6px; border: 1px solid var(--border-color); overflow-y: auto; line-height: 1.6; font-size: 0.9rem; }
+    .upload-btn { background: var(--btn-primary-bg); padding: 4px 10px; border-radius: 6px; cursor: pointer; font-weight: bold; color: var(--text-color); transition: 0.2s; font-size: 0.78rem; white-space: nowrap; }
+
+    /* Mobile / iPhone Responsive Layout */
+    @media (max-width: 768px) {
+        .study-header { margin-bottom: 8px; gap: 6px; }
+        .ws-title-input { font-size: 1rem; min-width: 110px; order: 10; width: 100%; flex-basis: 100%; padding: 4px 0; }
+        .study-layout-container { flex-direction: column; gap: 8px; overflow-y: auto; }
+        .study-sidebar { width: 100%; max-height: 45dvh; overflow-y: auto; padding: 10px; flex-shrink: 0; }
+        .transcript-box { height: 80px; flex-shrink: 0; }
+        .timeline-box { max-height: 110px; }
+
+        .tab-btn { padding: 6px 10px; font-size: 0.8rem; }
+        .panel-tools { padding: 8px; gap: 6px; }
+        .hw-tools { gap: 8px; padding-top: 6px; overflow-x: auto; flex-wrap: wrap; }
+        .tool-btn { padding: 5px 8px; font-size: 0.76rem; }
+        .hw-tip-text { display: none; }
+        .canvas-container { padding: 6px; }
+
+        .split-only-btn { display: none; }
+        .md-editor-container.mode-split { flex-direction: column; }
+    }
 </style>

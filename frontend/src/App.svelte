@@ -137,9 +137,9 @@
 </main>
 
 <style>
-    main { padding: 20px; display: flex; flex-direction: column; align-items: center; min-height: 100vh; box-sizing: border-box; }
-    .container { width: 100%; max-width: 900px; background: var(--container-bg); padding: 25px; border-radius: 10px; border: 1px solid var(--border-color); position: relative; transition: background 0.3s ease;}
-    .study-expanded { max-width: 1500px; height: 95vh; display: flex; flex-direction: column; overflow: hidden; }
+    main { padding: 20px; display: flex; flex-direction: column; align-items: center; min-height: 100vh; min-height: 100dvh; box-sizing: border-box; }
+    .container { width: 100%; max-width: 900px; background: var(--container-bg); padding: 25px; border-radius: 10px; border: 1px solid var(--border-color); position: relative; transition: background 0.3s ease; box-sizing: border-box; }
+    .study-expanded { max-width: 1500px; height: 95vh; height: 95dvh; display: flex; flex-direction: column; overflow: hidden; }
 
     .version-info {
         text-align: center;
@@ -147,8 +147,16 @@
         color: var(--text-color);
         opacity: 0.5;
         margin-top: auto;
+        padding-top: 8px;
     }
 
     .login-box { text-align: center; padding: 40px; background: var(--modal-bg); border: 1px solid var(--border-color); border-radius: 8px; margin-top: 20px;}
     .google-btn { display: inline-block; background: var(--btn-primary-bg); color: var(--text-color); text-decoration: none; padding: 10px 20px; border-radius: 4px; font-weight: 500; margin-top: 15px; }
+
+    @media (max-width: 768px) {
+        main { padding: 6px; }
+        .container { padding: 12px; border-radius: 8px; }
+        .study-expanded { height: 97dvh; padding: 10px; }
+        .version-info { display: none; }
+    }
 </style>

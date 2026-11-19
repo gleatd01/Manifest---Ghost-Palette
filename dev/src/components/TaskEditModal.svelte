@@ -128,7 +128,7 @@
         <h2>Edit Task</h2>
         <input class="full-width" type="text" bind:value={$editingTask.title} style="padding:10px; background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); margin-bottom:15px; border-radius:4px;"/>
 
-        <div class="modal-row" style="justify-content: space-between; margin-bottom: 10px; display:flex;">
+        <div class="modal-row" style="justify-content: space-between; margin-bottom: 10px; display:flex; flex-wrap: wrap; gap: 10px;">
             <div style="display:flex; align-items:center; gap:10px;">
                 <label style="color:var(--text-color); font-size:0.9rem;">Due Date:</label>
                 <input type="date" bind:value={$editingTask.due_date} style="background:var(--input-bg); border:1px solid var(--border-color); color:var(--text-color); border-radius:4px; padding:5px;"/>
@@ -259,8 +259,8 @@
 </div>
 
 <style>
-    .modal-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 100; overflow-y: auto;}
-    .modal { background: var(--modal-bg); padding: 25px; border-radius: 8px; width: 450px; border: 1px solid var(--border-color); margin: auto; transition: background 0.3s ease;}
+    .modal-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; height: 100dvh; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 100; overflow-y: auto; padding: 12px; box-sizing: border-box; }
+    .modal { background: var(--modal-bg); padding: 20px; border-radius: 8px; width: 100%; max-width: 450px; border: 1px solid var(--border-color); margin: auto; transition: background 0.3s ease; box-sizing: border-box; }
     .study-launch-banner { background: var(--input-bg); padding: 15px; border-radius: 6px; margin: 20px 0; border: 1px solid #2a2a5a; text-align: center; }
     .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
 

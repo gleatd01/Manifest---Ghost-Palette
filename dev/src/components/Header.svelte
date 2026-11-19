@@ -57,8 +57,9 @@
     .dev-badge { font-size: 0.7rem; background: #f59e0b; color: #000; padding: 2px 6px; border-radius: 4px; font-weight: 800; letter-spacing: 0.5px; }
     .header-actions { display: flex; align-items: center; gap: 15px; }
 
-    .view-tabs { display: flex; gap: 8px; margin-bottom: 20px; border-bottom: 1px solid var(--border-color); padding-bottom: 12px; }
-    .view-tabs button { background: none; border: none; color: #777; padding: 8px 16px; cursor: pointer; font-weight: 600; }
+    .view-tabs { display: flex; gap: 8px; margin-bottom: 20px; border-bottom: 1px solid var(--border-color); padding-bottom: 12px; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+    .view-tabs::-webkit-scrollbar { display: none; }
+    .view-tabs button { background: none; border: none; color: #777; padding: 8px 14px; cursor: pointer; font-weight: 600; white-space: nowrap; flex-shrink: 0; }
     .view-tabs button.active { background: var(--border-color); color: var(--text-color); border-radius: 4px; }
 
     .logout-btn { background: var(--btn-secondary-bg); color: #ccc; border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; }
@@ -66,4 +67,14 @@
     .theme-toggle { margin-right: auto; margin-left: 20px;}
     .yin-yang-btn { background: none; border: none; font-size: 1.5rem; cursor: pointer; transition: transform 0.3s ease; color: var(--text-color, #fff);}
     .yin-yang-btn:hover { transform: rotate(180deg); }
+
+    @media (max-width: 768px) {
+        .header { padding-bottom: 10px; margin-bottom: 12px; }
+        .header-title-area h1 { font-size: 1.2rem; }
+        .theme-toggle { margin-left: 10px; }
+        .header-actions { gap: 8px; }
+        .logout-btn { padding: 6px 10px; font-size: 0.78rem; }
+        .view-tabs { gap: 4px; margin-bottom: 12px; padding-bottom: 8px; }
+        .view-tabs button { padding: 6px 10px; font-size: 0.82rem; }
+    }
 </style>
